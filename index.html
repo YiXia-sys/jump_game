@@ -961,9 +961,10 @@ function handleLanding(platform, platformIdx, landX, landY) {
     return;
   }
 
-  const points = calculateScore(dist, maxR);
+  const landedOnNewPlatform = (platformIdx !== lastSafePlatformIdx || platforms.length <= 1);
+  const points = landedOnNewPlatform ? calculateScore(dist, maxR) : 0;
   const cur = roster.getCurrent();
-  cur.addScore(points);
+  if (points > 0) cur.addScore(points);
   jumpCount++;
 
   // 玩家停在实际落点
@@ -972,7 +973,6 @@ function handleLanding(platform, platformIdx, landX, landY) {
   player.onPlatform = platformIdx;
   player.bounce = 1;
   player.rotation = 0;
-  const prevSafePlatformIdx = lastSafePlatformIdx;
   lastSafePlatformIdx = platformIdx;
   lastSafeX = landX;
   lastSafeY = landY;
@@ -990,19 +990,15 @@ function handleLanding(platform, platformIdx, landX, landY) {
   }
 
   // 分数弹出
-  const sx = landX - cameraX, sy = landY - cameraY;
-  showScorePop('+' + points + (points === 50 ? ' ✨' : ''), sx, sy);
-
-  if (points === 50) triggerShake(3, 120);
-
-  // 镜头
-  targetCamX = landX - W/2;
-  targetCamY = landY - H/2 + 80;
-
-  spawnParticles(landX, landY, points === 50);
+  // 分数弹出（落回原平台不显示）
+  if (points > 0) {
+    const sx = landX - cameraX, sy = landY - cameraY;
+    showScorePop('+' + points + (points === 50 ? ' ✨' : ''), sx, sy);
+    if (points === 50) triggerShake(3, 120);
+    spawnParticles(landX, landY, points === 50);
+  }
 
   // 如果落回原来的平台（小跳），不清理也不生成新平台
-  const landedOnNewPlatform = (platformIdx !== prevSafePlatformIdx || platforms.length <= 1);
   if (landedOnNewPlatform) {
     // 清理：只保留当前平台及之前的，然后生成下一个
     // 移除当前平台之后的所有旧平台（防止多余平台干扰方向）
