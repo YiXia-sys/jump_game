@@ -1253,9 +1253,13 @@ function handleLanding(platform, platformIdx, landX, landY) {
   const insideCount = footPoints.filter(([fx, fy]) => platform.hitTest(fx, fy)).length;
   if (insideCount < 2) {
     // 脚没踩稳（少于2个点在平台内，40%容错），摇摇欲坠掉下去
+    // 视觉修正：把玩家调整到50%踩在边缘，看起来踩不稳
     const angle = Math.atan2(landY - center.y, landX - center.x);
+    const edgeDist = maxR * 0.95;
+    const visualX = center.x + Math.cos(angle) * edgeDist;
+    const visualY = center.y + Math.sin(angle) * edgeDist;
     slipAnim = {
-      startX: landX, startY: landY,
+      startX: visualX, startY: visualY,
       angle: angle,
       progress: 0,
       duration: 800,
@@ -1263,10 +1267,17 @@ function handleLanding(platform, platformIdx, landX, landY) {
     };
     slipping = true;
     SFX.slip();
-    player.x = landX;
-    player.y = landY;
+    player.x = visualX;
+    player.y = visualY;
     player.rotation = 0;
     return;
+  }
+
+  // 边缘容错触发时（不是所有脚点都在平台内），把落点修正到平台范围内
+  if (insideCount < 4) {
+    const pullRatio = 0.4;
+    landX = landX + (center.x - landX) * pullRatio;
+    landY = landY + (center.y - landY) * pullRatio;
   }
 
   const landedOnNewPlatform = (platformIdx !== lastSafePlatformIdx || platforms.length <= 1);
