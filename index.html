@@ -1222,6 +1222,10 @@ function handleLanding(platform, platformIdx, landX, landY) {
     spawnParticles(landX, landY, points === 50);
   }
 
+  // 镜头跟随
+  targetCamX = landX - W/2;
+  targetCamY = landY - H/2 + 80;
+
   // 如果落回原来的平台（小跳），不清理也不生成新平台
   if (landedOnNewPlatform) {
     // 清理：只保留当前平台及之前的，然后生成下一个
