@@ -1251,8 +1251,8 @@ function handleLanding(platform, platformIdx, landX, landY) {
     [landX, landY + footR * 0.6]
   ];
   const insideCount = footPoints.filter(([fx, fy]) => platform.hitTest(fx, fy)).length;
-  if (insideCount < 2) {
-    // 脚没踩稳（少于2个点在平台内，40%容错），摇摇欲坠掉下去
+  if (insideCount < 3) {
+    // 脚没踩稳（少于3个点在平台内，20%容错），摇摇欲坠掉下去
     // 视觉修正：把玩家调整到50%踩在边缘，看起来踩不稳
     const angle = Math.atan2(landY - center.y, landX - center.x);
     const edgeDist = maxR * 0.95;
