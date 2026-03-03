@@ -889,7 +889,7 @@ function generateNextPlatform(basePlatform) {
   const st = SHAPE_TYPES[Math.floor(Math.random() * SHAPE_TYPES.length)];
   const p = new Platform(nx, ny, pw, PLATFORM_H, st);
 
-  // 根据跳跃次数解锁难度机制（更早、概率更高）
+  // 根据跳跃次数解锁难度机制（互斥，每个平台最多一种特殊效果）
   if (jumpCount >= 8 && Math.random() < Math.min(0.3 + jumpCount * 0.008, 0.55)) {
     // 移动平台：速度和范围随跳跃次数增加
     p.moving = true;
@@ -897,13 +897,11 @@ function generateNextPlatform(basePlatform) {
     p.moveSpeed = 0.001 + Math.random() * 0.001 + speedBonus;
     p.moveRange = 20 + Math.random() * 25 + Math.min(jumpCount * 0.5, 15);
     p.baseX = nx;
-  }
-  if (jumpCount >= 12 && Math.random() < Math.min(0.25 + jumpCount * 0.006, 0.45)) {
+  } else if (jumpCount >= 12 && Math.random() < Math.min(0.25 + jumpCount * 0.006, 0.45)) {
     // 缩小平台：缩得更快
     p.shrinking = true;
     p.shrinkRate = 0.012 + Math.random() * 0.01;
-  }
-  if (jumpCount >= 18 && Math.random() < Math.min(0.2 + jumpCount * 0.005, 0.4)) {
+  } else if (jumpCount >= 18 && Math.random() < Math.min(0.2 + jumpCount * 0.005, 0.4)) {
     // 限时平台：时间更短
     p.timed = true;
     p.timerDuration = Math.max(1200, 2000 - jumpCount * 15);
