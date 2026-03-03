@@ -972,6 +972,7 @@ function handleLanding(platform, platformIdx, landX, landY) {
   player.onPlatform = platformIdx;
   player.bounce = 1;
   player.rotation = 0;
+  const prevSafePlatformIdx = lastSafePlatformIdx;
   lastSafePlatformIdx = platformIdx;
   lastSafeX = landX;
   lastSafeY = landY;
@@ -1000,19 +1001,23 @@ function handleLanding(platform, platformIdx, landX, landY) {
 
   spawnParticles(landX, landY, points === 50);
 
-  // 清理：只保留当前平台及之前的，然后生成下一个
-  // 移除当前平台之后的所有旧平台（防止多余平台干扰方向）
-  if (platformIdx < platforms.length - 1) {
-    platforms.splice(platformIdx + 1);
+  // 如果落回原来的平台（小跳），不清理也不生成新平台
+  const landedOnNewPlatform = (platformIdx !== prevSafePlatformIdx || platforms.length <= 1);
+  if (landedOnNewPlatform) {
+    // 清理：只保留当前平台及之前的，然后生成下一个
+    // 移除当前平台之后的所有旧平台（防止多余平台干扰方向）
+    if (platformIdx < platforms.length - 1) {
+      platforms.splice(platformIdx + 1);
+    }
+    // 清理当前平台之前的旧平台（保留最多2个历史）
+    if (platformIdx > 2) {
+      const remove = platformIdx - 2;
+      platforms.splice(0, remove);
+      player.onPlatform = Math.max(0, player.onPlatform - remove);
+      lastSafePlatformIdx = Math.max(0, lastSafePlatformIdx - remove);
+    }
+    generateNextPlatform(platform);
   }
-  // 清理当前平台之前的旧平台（保留最多2个历史）
-  if (platformIdx > 2) {
-    const remove = platformIdx - 2;
-    platforms.splice(0, remove);
-    player.onPlatform = Math.max(0, player.onPlatform - remove);
-    lastSafePlatformIdx = Math.max(0, lastSafePlatformIdx - remove);
-  }
-  generateNextPlatform(platform);
 
   // 切换角色
   roster.advance();
