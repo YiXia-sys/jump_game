@@ -116,12 +116,37 @@
     border-radius: 6px;
     transition: width 0.05s;
   }
+  #gameButtons {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    display: none;
+    gap: 6px;
+    z-index: 6;
+  }
+  #gameButtons button {
+    padding: 4px 12px;
+    font-size: 12px;
+    border: none;
+    border-radius: 6px;
+    color: #fff;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+  }
+  #gameButtons button:hover { opacity: 1; }
+  #backBtn { background: #555; }
+  #restartBtn { background: #e94560; }
 </style>
 </head>
 <body>
 <div id="statusBar"></div>
 <div id="gameArea">
   <canvas id="game"></canvas>
+  <div id="gameButtons">
+    <button id="backBtn">返回</button>
+    <button id="restartBtn">重新开始</button>
+  </div>
   <div id="powerBar"><div id="powerFill"></div></div>
   <div id="overlay">
     <h1>🎮 跳跳游戏</h1>
@@ -143,6 +168,9 @@ const finalScoreEl = document.getElementById('finalScore');
 const charResultsEl = document.getElementById('charResults');
 const powerFill = document.getElementById('powerFill');
 const statusBarEl = document.getElementById('statusBar');
+const gameButtonsEl = document.getElementById('gameButtons');
+const backBtn = document.getElementById('backBtn');
+const restartBtn = document.getElementById('restartBtn');
 
 const W = 600, H = 650;
 canvas.width = W;
@@ -731,10 +759,12 @@ function initGame(isTestMode) {
   lastSafePlatform = null;
   generateNextPlatform();
   updateStatusBar();
+  gameButtonsEl.style.display = 'flex';
 }
 
 function showOverlay(isGameOver) {
   overlay.style.display = 'flex';
+  gameButtonsEl.style.display = 'none';
   const h1 = overlay.querySelector('h1');
   const p = overlay.querySelector('p');
   if (isGameOver && roster) {
@@ -765,6 +795,22 @@ startBtn.addEventListener('click', function() {
 
 testModeBtn.addEventListener('click', function() {
   initGame(true);
+  overlay.style.display = 'none';
+  lastTime = 0;
+  requestAnimationFrame(gameLoop);
+});
+
+backBtn.addEventListener('click', function() {
+  gameRunning = false;
+  falling = false;
+  jumpAnim = null;
+  slipping = false;
+  fallToBase = null;
+  showOverlay(false);
+});
+
+restartBtn.addEventListener('click', function() {
+  initGame(testMode);
   overlay.style.display = 'none';
   lastTime = 0;
   requestAnimationFrame(gameLoop);
@@ -844,8 +890,8 @@ function handleLanding(platform, platformIdx, landX, landY) {
     [landX, landY + footR * 0.6]
   ];
   const insideCount = footPoints.filter(([fx, fy]) => platform.hitTest(fx, fy)).length;
-  if (insideCount < 3) {
-    // 脚没踩稳（少于3个点在平台内），摇摇欲坠掉下去
+  if (insideCount < 2) {
+    // 脚没踩稳（少于2个点在平台内，40%容错），摇摇欲坠掉下去
     const angle = Math.atan2(landY - center.y, landX - center.x);
     slipAnim = {
       startX: landX, startY: landY,
@@ -1143,11 +1189,17 @@ function update(dt) {
           safePlat.w = safePlat.origW;
           safePlat.shrinking = false;
         }
-        // 限时平台重新开始倒计时
+        // 限时平台重新开始倒计时（完全重置）
         if (safePlat.timed) {
-          safePlat.timerActive = true;
-          safePlat.timerStart = Date.now();
+          safePlat.timerActive = false;
+          safePlat.timerStart = 0;
         }
+      }
+      // 即使平台没塌陷，也要重置限时平台的倒计时
+      const safePlat2 = platforms[lastSafePlatformIdx];
+      if (safePlat2 && safePlat2.timed && safePlat2.timerActive) {
+        safePlat2.timerActive = false;
+        safePlat2.timerStart = 0;
       }
       // 复位到安全位置
       if (lastSafePlatform && lastSafePlatform.moving) {
