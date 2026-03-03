@@ -839,7 +839,7 @@ class Player {
 // === 常量 ===
 const MIN_JUMP = 10, MAX_JUMP = 350;
 const JUMP_DURATION = 800, MIN_JUMP_HEIGHT = 20, MAX_JUMP_HEIGHT = 150;
-const MIN_PLATFORM_W = 45, MAX_PLATFORM_W = 95, PLATFORM_H = 80;
+const MIN_PLATFORM_W = 38, MAX_PLATFORM_W = 80, PLATFORM_H = 80;
 const CAMERA_LERP = 0.08;
 let jumpCount = 0; // 总跳跃次数，用于解锁难度机制
 
@@ -877,31 +877,36 @@ function generateNextPlatform(basePlatform) {
     sameDirCount = 1;
   }
   nextDir = newDir;
-  const pw = MIN_PLATFORM_W + Math.random() * (MAX_PLATFORM_W - MIN_PLATFORM_W);
-  // 间距稍大一些
-  const minGap = (last.w + pw) / 2 + 40;
-  const gap = minGap + Math.random() * 140;
+  // 随跳跃次数平台逐渐变小
+  const shrinkFactor = Math.min(jumpCount * 0.4, 15); // 最多缩小15px
+  const pw = Math.max(MIN_PLATFORM_W, MIN_PLATFORM_W + Math.random() * (MAX_PLATFORM_W - MIN_PLATFORM_W) - shrinkFactor);
+  // 间距随跳跃次数逐渐增大
+  const extraGap = Math.min(jumpCount * 1.5, 40);
+  const minGap = (last.w + pw) / 2 + 50 + extraGap;
+  const gap = minGap + Math.random() * 120;
   const nx = last.x + nextDir * gap * 0.5;
   const ny = last.y - gap * 0.3;
   const st = SHAPE_TYPES[Math.floor(Math.random() * SHAPE_TYPES.length)];
   const p = new Platform(nx, ny, pw, PLATFORM_H, st);
 
-  // 根据跳跃次数解锁难度机制
-  if (jumpCount >= 15 && Math.random() < 0.4) {
-    // 移动平台
+  // 根据跳跃次数解锁难度机制（更早、概率更高）
+  if (jumpCount >= 8 && Math.random() < Math.min(0.3 + jumpCount * 0.008, 0.55)) {
+    // 移动平台：速度和范围随跳跃次数增加
     p.moving = true;
-    p.moveSpeed = 0.0008 + Math.random() * 0.0008;
-    p.moveRange = 15 + Math.random() * 20;
+    const speedBonus = Math.min(jumpCount * 0.00003, 0.001);
+    p.moveSpeed = 0.001 + Math.random() * 0.001 + speedBonus;
+    p.moveRange = 20 + Math.random() * 25 + Math.min(jumpCount * 0.5, 15);
     p.baseX = nx;
   }
-  if (jumpCount >= 20 && Math.random() < 0.3) {
-    // 缩小平台
+  if (jumpCount >= 12 && Math.random() < Math.min(0.25 + jumpCount * 0.006, 0.45)) {
+    // 缩小平台：缩得更快
     p.shrinking = true;
-    p.shrinkRate = 0.008 + Math.random() * 0.008;
+    p.shrinkRate = 0.012 + Math.random() * 0.01;
   }
-  if (jumpCount >= 25 && Math.random() < 0.3) {
-    // 限时平台
+  if (jumpCount >= 18 && Math.random() < Math.min(0.2 + jumpCount * 0.005, 0.4)) {
+    // 限时平台：时间更短
     p.timed = true;
+    p.timerDuration = Math.max(1200, 2000 - jumpCount * 15);
   }
 
   platforms.push(p);
