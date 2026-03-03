@@ -894,20 +894,31 @@ let homeBgPlayer = { x: 0, y: 0, vy: 0, onPlat: 0, jumping: false, t: 0, startX:
 
 function initHomeBg() {
   homeBgPlatforms = [];
-  let x = 80, y = H - 100;
-  let dir = 1;
+  let x = 100 + Math.random() * 80, y = H - 80;
+  let dir = Math.random() > 0.5 ? 1 : -1;
+  let sameCount = 0;
+  const maxSame = 2 + Math.floor(Math.random() * 2); // 同方向2~3根
+
   for (let i = 0; i < 7; i++) {
     const w = 50 + Math.random() * 40;
     const st = SHAPE_TYPES[Math.floor(Math.random() * SHAPE_TYPES.length)];
     homeBgPlatforms.push(new Platform(x, y, w, PLATFORM_H, st));
-    // 随机左右曲折
-    dir = Math.random() > 0.4 ? dir : -dir;
-    const gap = 70 + Math.random() * 60;
-    x += dir * gap * 0.5 + (Math.random() - 0.5) * 40;
-    y -= gap * 0.35 + Math.random() * 20;
+
+    sameCount++;
+    if (sameCount >= maxSame) {
+      dir = -dir;
+      sameCount = 0;
+    }
+
+    // 随机间距，不要一模一样
+    const gapX = 55 + Math.random() * 80;
+    const gapY = 40 + Math.random() * 35;
+    x += dir * gapX;
+    y -= gapY;
+
     // 防止跑出画布
-    if (x < 60) { x = 80; dir = 1; }
-    if (x > W - 60) { x = W - 80; dir = -1; }
+    if (x < 70) { x = 90 + Math.random() * 30; dir = 1; sameCount = 0; }
+    if (x > W - 70) { x = W - 90 - Math.random() * 30; dir = -1; sameCount = 0; }
   }
   const tc = homeBgPlatforms[0].getTopCenter();
   homeBgPlayer = { x: tc.x, y: tc.y, onPlat: 0, jumping: false, t: 0, startX: tc.x, startY: tc.y, targetX: 0, targetY: 0, height: 0, duration: 600, rotation: 0, waitTimer: 0 };
@@ -959,9 +970,10 @@ function updateHomeBg(dt) {
 function renderHomeBg() {
   ctx.fillStyle = '#1a1a2e';
   ctx.fillRect(0, 0, W, H);
-  // 画平台（半透明）
+  // 深度排序：Y 小的先画（远处先画），营造立体感
+  const sorted = [...homeBgPlatforms].sort((a, b) => a.y - b.y);
   ctx.globalAlpha = 0.35;
-  for (const p of homeBgPlatforms) {
+  for (const p of sorted) {
     p.draw(0, 0);
   }
   ctx.globalAlpha = 0.5;
