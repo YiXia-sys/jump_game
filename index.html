@@ -1189,17 +1189,16 @@ function update(dt) {
           safePlat.w = safePlat.origW;
           safePlat.shrinking = false;
         }
-        // 限时平台重新开始倒计时（完全重置）
+        // 限时平台重新开始倒计时
         if (safePlat.timed) {
-          safePlat.timerActive = false;
-          safePlat.timerStart = 0;
+          safePlat.timerActive = true;
+          safePlat.timerStart = Date.now();
         }
       }
-      // 即使平台没塌陷，也要重置限时平台的倒计时
+      // 即使平台没塌陷，也要重新开始限时平台的倒计时
       const safePlat2 = platforms[lastSafePlatformIdx];
       if (safePlat2 && safePlat2.timed && safePlat2.timerActive) {
-        safePlat2.timerActive = false;
-        safePlat2.timerStart = 0;
+        safePlat2.timerStart = Date.now();
       }
       // 复位到安全位置
       if (lastSafePlatform && lastSafePlatform.moving) {
