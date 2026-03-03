@@ -144,6 +144,7 @@
 <div id="gameArea">
   <canvas id="game"></canvas>
   <div id="gameButtons">
+    <button id="renameBtn" style="background:#333;font-size:10px;padding:3px 8px;">✏️</button>
     <button id="backBtn">返回</button>
     <button id="restartBtn">重新开始</button>
   </div>
@@ -159,6 +160,10 @@
     <div id="highScoreArea" style="margin-top:16px;text-align:center;">
       <div id="highScoreDisplay" style="color:#ffd700;font-size:16px;"></div>
       <button id="clearScoreBtn" style="padding:4px 16px;font-size:12px;border:none;border-radius:6px;background:#555;color:#aaa;cursor:pointer;margin-top:6px;display:none;">清空记录</button>
+    </div>
+    <div id="nameArea" style="margin-top:14px;text-align:center;">
+      <input id="nameInput" type="text" maxlength="8" placeholder="输入角色名称" style="padding:6px 12px;font-size:14px;border:none;border-radius:6px;background:rgba(255,255,255,0.12);color:#fff;text-align:center;outline:none;width:140px;">
+      <button id="nameConfirmBtn" style="padding:6px 12px;font-size:13px;border:none;border-radius:6px;background:#e94560;color:#fff;cursor:pointer;margin-left:4px;">确定</button>
     </div>
   </div>
 </div>
@@ -179,6 +184,10 @@ const restartBtn = document.getElementById('restartBtn');
 const highScoreDisplay = document.getElementById('highScoreDisplay');
 const clearScoreBtn = document.getElementById('clearScoreBtn');
 const homeBtn = document.getElementById('homeBtn');
+const nameInput = document.getElementById('nameInput');
+const nameConfirmBtn = document.getElementById('nameConfirmBtn');
+const nameArea = document.getElementById('nameArea');
+const renameBtn = document.getElementById('renameBtn');
 
 const W = 600, H = 650;
 canvas.width = W;
@@ -242,6 +251,53 @@ function updateHighScoreDisplay() {
     clearScoreBtn.style.display = 'none';
   }
 }
+
+// === 角色名称管理 ===
+const PLAYER_NAME_KEY = 'jumpGame_playerName';
+
+function getPlayerName() {
+  return localStorage.getItem(PLAYER_NAME_KEY) || '';
+}
+
+function savePlayerName(name) {
+  localStorage.setItem(PLAYER_NAME_KEY, name.trim() || '角色1');
+}
+
+function initNameInput() {
+  const saved = getPlayerName();
+  if (saved) {
+    nameInput.value = saved;
+  }
+}
+
+initNameInput();
+
+nameConfirmBtn.addEventListener('click', function() {
+  const name = nameInput.value.trim();
+  if (name) {
+    savePlayerName(name);
+    // 如果游戏中，更新当前角色名
+    if (roster && roster.getCurrent()) {
+      roster.getCurrent().name = name;
+      updateStatusBar();
+    }
+  }
+});
+
+nameInput.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') nameConfirmBtn.click();
+});
+
+renameBtn.addEventListener('click', function() {
+  const newName = prompt('输入新的角色名称:', getPlayerName() || '角色1');
+  if (newName !== null && newName.trim()) {
+    savePlayerName(newName.trim());
+    if (roster && roster.getCurrent()) {
+      roster.getCurrent().name = newName.trim();
+      updateStatusBar();
+    }
+  }
+});
 
 const COLORS = ['#e94560','#0f3460','#533483','#00b4d8','#fb8500','#8338ec','#06d6a0','#ef476f'];
 const CHAR_COLORS = ['#e94560','#00b4d8','#fb8500','#06d6a0','#8338ec'];
@@ -837,7 +893,8 @@ function initGame(isTestMode) {
   targetCamX = 0; targetCamY = 0;
   powerFill.style.width = '0%';
 
-  const char = new Character(0, '角色1', CHAR_COLORS[0]);
+  const playerName = getPlayerName() || '角色1';
+  const char = new Character(0, playerName, CHAR_COLORS[0]);
   char.health = 5;
   roster = new CharacterRoster([char]);
 
