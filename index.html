@@ -894,14 +894,20 @@ let homeBgPlayer = { x: 0, y: 0, vy: 0, onPlat: 0, jumping: false, t: 0, startX:
 
 function initHomeBg() {
   homeBgPlatforms = [];
-  const startX = 120, startY = H - 120;
+  let x = 80, y = H - 100;
+  let dir = 1;
   for (let i = 0; i < 7; i++) {
     const w = 50 + Math.random() * 40;
     const st = SHAPE_TYPES[Math.floor(Math.random() * SHAPE_TYPES.length)];
-    const x = startX + i * 80 + (Math.random() - 0.5) * 30;
-    const y = startY - i * 55 - Math.random() * 30;
-    const p = new Platform(x, y, w, PLATFORM_H, st);
-    homeBgPlatforms.push(p);
+    homeBgPlatforms.push(new Platform(x, y, w, PLATFORM_H, st));
+    // 随机左右曲折
+    dir = Math.random() > 0.4 ? dir : -dir;
+    const gap = 70 + Math.random() * 60;
+    x += dir * gap * 0.5 + (Math.random() - 0.5) * 40;
+    y -= gap * 0.35 + Math.random() * 20;
+    // 防止跑出画布
+    if (x < 60) { x = 80; dir = 1; }
+    if (x > W - 60) { x = W - 80; dir = -1; }
   }
   const tc = homeBgPlatforms[0].getTopCenter();
   homeBgPlayer = { x: tc.x, y: tc.y, onPlat: 0, jumping: false, t: 0, startX: tc.x, startY: tc.y, targetX: 0, targetY: 0, height: 0, duration: 600, rotation: 0, waitTimer: 0 };
