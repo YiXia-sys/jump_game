@@ -1485,7 +1485,7 @@ function update(dt) {
   if (jumpAnim) {
     jumpAnim.progress += dt / jumpAnim.duration;
     // 蓄力低于10%时不翻滚，只是小跳
-    if (jumpAnim.power >= 0.1) {
+    if (jumpAnim.power >= 0.2) {
       player.rotation = jumpAnim.progress * Math.PI * 2 * jumpAnim.dirSign;
     } else {
       player.rotation = 0;
