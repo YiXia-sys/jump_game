@@ -155,6 +155,10 @@
     <div class="char-results" id="charResults" style="display:none"></div>
     <button id="startBtn">开始游戏</button>
     <button id="testModeBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#0f3460;color:#fff;cursor:pointer;margin-top:10px;">测试模式</button>
+    <div id="highScoreArea" style="margin-top:16px;text-align:center;">
+      <div id="highScoreDisplay" style="color:#ffd700;font-size:16px;"></div>
+      <button id="clearScoreBtn" style="padding:4px 16px;font-size:12px;border:none;border-radius:6px;background:#555;color:#aaa;cursor:pointer;margin-top:6px;display:none;">清空记录</button>
+    </div>
   </div>
 </div>
 
@@ -171,6 +175,8 @@ const statusBarEl = document.getElementById('statusBar');
 const gameButtonsEl = document.getElementById('gameButtons');
 const backBtn = document.getElementById('backBtn');
 const restartBtn = document.getElementById('restartBtn');
+const highScoreDisplay = document.getElementById('highScoreDisplay');
+const clearScoreBtn = document.getElementById('clearScoreBtn');
 
 const W = 600, H = 650;
 canvas.width = W;
@@ -202,6 +208,38 @@ let slipping = false; // 边缘滑落状态
 let slipAnim = null;
 let fallToBase = null; // 掉落到柱底动画
 let testMode = false;
+
+// === 最高分管理 ===
+const HIGH_SCORE_KEY = 'jumpGame_highScore';
+
+function getHighScore() {
+  return parseInt(localStorage.getItem(HIGH_SCORE_KEY)) || 0;
+}
+
+function saveHighScore(score) {
+  const current = getHighScore();
+  if (score > current) {
+    localStorage.setItem(HIGH_SCORE_KEY, score);
+    return true;
+  }
+  return false;
+}
+
+function clearHighScore() {
+  localStorage.removeItem(HIGH_SCORE_KEY);
+  updateHighScoreDisplay();
+}
+
+function updateHighScoreDisplay() {
+  const hs = getHighScore();
+  if (hs > 0) {
+    highScoreDisplay.textContent = '🏆 最高记录: ' + hs + '分';
+    clearScoreBtn.style.display = 'inline-block';
+  } else {
+    highScoreDisplay.textContent = '';
+    clearScoreBtn.style.display = 'none';
+  }
+}
 
 const COLORS = ['#e94560','#0f3460','#533483','#00b4d8','#fb8500','#8338ec','#06d6a0','#ef476f'];
 const CHAR_COLORS = ['#e94560','#00b4d8','#fb8500','#06d6a0','#8338ec'];
@@ -768,8 +806,16 @@ function showOverlay(isGameOver) {
   const h1 = overlay.querySelector('h1');
   const p = overlay.querySelector('p');
   if (isGameOver && roster) {
+    const totalScore = roster.getTotalScore();
     finalScoreEl.style.display = 'block';
-    finalScoreEl.textContent = '总分: ' + roster.getTotalScore() + (testMode ? ' [测试模式]' : '');
+    finalScoreEl.textContent = '总分: ' + totalScore + (testMode ? ' [测试模式]' : '');
+    // 正常模式下保存最高分
+    if (!testMode) {
+      const isNew = saveHighScore(totalScore);
+      if (isNew) {
+        finalScoreEl.textContent += ' 🎉 新纪录!';
+      }
+    }
     charResultsEl.style.display = 'block';
     charResultsEl.innerHTML = roster.characters.map(c =>
       `<div style="color:${c.color}">${c.name}: ${c.score}分 ${c.alive ? '' : '(淘汰)'}</div>`
@@ -784,6 +830,7 @@ function showOverlay(isGameOver) {
     if (h1) h1.style.display = '';
     if (p) p.style.display = '';
   }
+  updateHighScoreDisplay();
 }
 
 startBtn.addEventListener('click', function() {
@@ -815,6 +862,13 @@ restartBtn.addEventListener('click', function() {
   lastTime = 0;
   requestAnimationFrame(gameLoop);
 });
+
+clearScoreBtn.addEventListener('click', function() {
+  clearHighScore();
+});
+
+// 页面加载时显示最高分
+updateHighScoreDisplay();
 
 // === 蓄力系统 ===
 
