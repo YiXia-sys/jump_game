@@ -1,0 +1,1221 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>跳跳游戏 V2</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a2e;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+    font-family: 'Microsoft YaHei', sans-serif;
+    user-select: none;
+  }
+  #statusBar {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(0,0,0,0.5);
+    width: 100%;
+    z-index: 5;
+    flex-shrink: 0;
+  }
+  .char-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.08);
+    min-width: 90px;
+    transition: all 0.3s;
+  }
+  .char-card.active {
+    background: rgba(233,69,96,0.3);
+    box-shadow: 0 0 12px rgba(233,69,96,0.6);
+  }
+  .char-card.eliminated {
+    opacity: 0.35;
+  }
+  .char-card.eliminated .char-name { text-decoration: line-through; }
+  .char-name { color: #fff; font-size: 13px; font-weight: bold; }
+  .char-score { color: #ffd700; font-size: 12px; }
+  .char-health { font-size: 11px; letter-spacing: 1px; }
+  #gameArea {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+  }
+  canvas { display: block; border-radius: 8px; }
+  .score-pop {
+    position: absolute;
+    color: #ffd700;
+    font-size: 28px;
+    font-weight: bold;
+    pointer-events: none;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    animation: scorePop 0.8s ease-out forwards;
+    z-index: 5;
+  }
+  @keyframes scorePop {
+    0% { opacity: 1; transform: translateY(0) scale(1); }
+    100% { opacity: 0; transform: translateY(-60px) scale(1.5); }
+  }
+  #overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.75);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: #fff;
+    z-index: 10;
+  }
+  #overlay h1 { font-size: 42px; margin-bottom: 10px; }
+  #overlay p { font-size: 18px; margin-bottom: 20px; color: #aaa; }
+  #overlay .final-score { font-size: 28px; color: #ffd700; margin-bottom: 10px; }
+  #overlay .char-results { margin-bottom: 20px; text-align: center; }
+  #overlay .char-results div { font-size: 16px; color: #ccc; margin: 4px 0; }
+  #overlay button {
+    padding: 12px 40px;
+    font-size: 20px;
+    border: none;
+    border-radius: 8px;
+    background: #e94560;
+    color: #fff;
+    cursor: pointer;
+    transition: transform 0.1s;
+  }
+  #overlay button:hover { transform: scale(1.05); }
+  #overlay button:active { transform: scale(0.95); }
+  #powerBar {
+    position: absolute;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 200px;
+    height: 12px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 6px;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  #powerFill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #00d2ff, #e94560);
+    border-radius: 6px;
+    transition: width 0.05s;
+  }
+</style>
+</head>
+<body>
+<div id="statusBar"></div>
+<div id="gameArea">
+  <canvas id="game"></canvas>
+  <div id="powerBar"><div id="powerFill"></div></div>
+  <div id="overlay">
+    <h1>🎮 跳跳游戏</h1>
+    <p>按住蓄力，松开跳跃</p>
+    <div class="final-score" id="finalScore" style="display:none"></div>
+    <div class="char-results" id="charResults" style="display:none"></div>
+    <button id="startBtn">开始游戏</button>
+    <button id="testModeBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#0f3460;color:#fff;cursor:pointer;margin-top:10px;">测试模式</button>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const overlay = document.getElementById('overlay');
+const startBtn = document.getElementById('startBtn');
+const testModeBtn = document.getElementById('testModeBtn');
+const finalScoreEl = document.getElementById('finalScore');
+const charResultsEl = document.getElementById('charResults');
+const powerFill = document.getElementById('powerFill');
+const statusBarEl = document.getElementById('statusBar');
+
+const W = 600, H = 650;
+canvas.width = W;
+canvas.height = H;
+
+// 游戏状态
+let platforms = [];
+let player = null;
+let gameRunning = false;
+let charging = false;
+let chargeStart = 0;
+let chargePower = 0;
+let maxCharge = 2000;
+let jumpAnim = null;
+let particles = [];
+let cameraX = 0, cameraY = 0;
+let targetCamX = 0, targetCamY = 0;
+let nextDir = 1;
+let sameDirCount = 0; // 连续同方向计数
+let falling = false;
+let fallSpeed = 0;
+let shakeX = 0, shakeY = 0, shakeDuration = 0;
+let roster = null;
+let lastTime = 0;
+let lastSafePlatformIdx = 0;
+let lastSafeX = 0, lastSafeY = 0; // 记住玩家实际站立位置
+let lastSafePlatform = null; // 记住安全平台引用（移动平台复活用）
+let slipping = false; // 边缘滑落状态
+let slipAnim = null;
+let fallToBase = null; // 掉落到柱底动画
+let testMode = false;
+
+const COLORS = ['#e94560','#0f3460','#533483','#00b4d8','#fb8500','#8338ec','#06d6a0','#ef476f'];
+const CHAR_COLORS = ['#e94560','#00b4d8','#fb8500','#06d6a0','#8338ec'];
+const SHAPE_TYPES = ['rectangle','circle','pentagon'];
+
+// === 核心纯函数 ===
+
+function calculatePower(chargeTime, maxCharge) {
+  return Math.min(chargeTime, maxCharge) / maxCharge;
+}
+
+function calculateJumpDistance(power, minJump, maxJump) {
+  return minJump + power * (maxJump - minJump);
+}
+
+function calculateScore(centerDistance, maxRadius) {
+  if (maxRadius <= 0) return 50;
+  const ratio = centerDistance / maxRadius;
+  if (ratio <= 0.25) return 50;
+  if (ratio <= 0.6) return 20;
+  return 10;
+}
+
+function calculateParabola(t, startY, endY, height) {
+  return startY + (endY - startY) * t - 4 * height * t * (1 - t);
+}
+
+function darkenColor(hex, amount) {
+  let r = parseInt(hex.slice(1,3),16);
+  let g = parseInt(hex.slice(3,5),16);
+  let b = parseInt(hex.slice(5,7),16);
+  r = Math.floor(r * (1 - amount));
+  g = Math.floor(g * (1 - amount));
+  b = Math.floor(b * (1 - amount));
+  return `rgb(${r},${g},${b})`;
+}
+
+// 通用射线法：判断点是否在多边形内
+function pointInPolygon(px, py, vertices) {
+  let inside = false;
+  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+    const xi = vertices[i][0], yi = vertices[i][1];
+    const xj = vertices[j][0], yj = vertices[j][1];
+    if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+// 生成等距投影的多边形顶点
+function isoPolygon(cx, cy, w, sides, startAngle) {
+  const r = w / 2;
+  const verts = [];
+  for (let i = 0; i < sides; i++) {
+    const a = startAngle + (Math.PI * 2 * i) / sides;
+    verts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.6]);
+  }
+  return verts;
+}
+
+// === Character 与 Roster ===
+
+class Character {
+  constructor(id, name, color) {
+    this.id = id;
+    this.name = name;
+    this.color = color;
+    this.score = 0;
+    this.health = 5;
+    this.alive = true;
+  }
+  addScore(pts) { this.score += pts; }
+  takeDamage() {
+    if (testMode) return;
+    this.health = Math.max(0, this.health - 1);
+    if (this.health === 0) this.alive = false;
+  }
+}
+
+class CharacterRoster {
+  constructor(chars) {
+    this.characters = chars;
+    this.currentIndex = 0;
+  }
+  getCurrent() { return this.characters[this.currentIndex]; }
+  advance() {
+    const start = this.currentIndex;
+    do {
+      this.currentIndex = (this.currentIndex + 1) % this.characters.length;
+    } while (!this.characters[this.currentIndex].alive && this.currentIndex !== start);
+  }
+  allEliminated() { return this.characters.every(c => !c.alive); }
+  getTotalScore() { return this.characters.reduce((s, c) => s + c.score, 0); }
+}
+
+// === SHAPES 形状系统 ===
+
+const SHAPES = {
+  rectangle: {
+    drawTop(ctx, tx, ty, w, h, color) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(tx, ty - h);
+      ctx.lineTo(tx + w/2, ty - h - w*0.3);
+      ctx.lineTo(tx + w, ty - h);
+      ctx.lineTo(tx + w/2, ty - h + w*0.3);
+      ctx.closePath();
+      ctx.fill();
+    },
+    drawLeft(ctx, tx, ty, w, h, color) {
+      ctx.fillStyle = darkenColor(color, 0.3);
+      ctx.beginPath();
+      ctx.moveTo(tx, ty - h);
+      ctx.lineTo(tx + w/2, ty - h + w*0.3);
+      ctx.lineTo(tx + w/2, ty + w*0.3);
+      ctx.lineTo(tx, ty);
+      ctx.closePath();
+      ctx.fill();
+    },
+    drawRight(ctx, tx, ty, w, h, color) {
+      ctx.fillStyle = darkenColor(color, 0.15);
+      ctx.beginPath();
+      ctx.moveTo(tx + w, ty - h);
+      ctx.lineTo(tx + w/2, ty - h + w*0.3);
+      ctx.lineTo(tx + w/2, ty + w*0.3);
+      ctx.lineTo(tx + w, ty);
+      ctx.closePath();
+      ctx.fill();
+    },
+    hitTest(px, py, cx, cy, w) {
+      return Math.abs(px - cx) / (w/2) + Math.abs(py - cy) / (w*0.3) <= 1;
+    },
+    getCenter(x, y, w, h) { return { x: x + w/2, y: y - h }; },
+    getMaxRadius(w) { return w * 0.3; }
+  },
+
+  circle: {
+    drawTop(ctx, tx, ty, w, h, color) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.ellipse(tx + w/2, ty - h, w/2, w*0.3, 0, 0, Math.PI*2);
+      ctx.fill();
+    },
+    drawLeft(ctx, tx, ty, w, h, color) {
+      ctx.fillStyle = darkenColor(color, 0.25);
+      ctx.beginPath();
+      // 顶面椭圆下半弧左侧
+      for (let a = Math.PI * 0.5; a <= Math.PI; a += 0.05) {
+        const x = tx + w/2 + Math.cos(a) * w/2;
+        const y = ty - h + Math.sin(a) * w*0.3;
+        a === Math.PI * 0.5 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      // 底面椭圆下半弧左侧（反向）
+      for (let a = Math.PI; a >= Math.PI * 0.5; a -= 0.05) {
+        const x = tx + w/2 + Math.cos(a) * w/2;
+        const y = ty + Math.sin(a) * w*0.3;
+        ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fill();
+    },
+    drawRight(ctx, tx, ty, w, h, color) {
+      ctx.fillStyle = darkenColor(color, 0.12);
+      ctx.beginPath();
+      // 顶面椭圆下半弧右侧
+      for (let a = 0; a <= Math.PI * 0.5; a += 0.05) {
+        const x = tx + w/2 + Math.cos(a) * w/2;
+        const y = ty - h + Math.sin(a) * w*0.3;
+        a === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      // 底面椭圆下半弧右侧（反向）
+      for (let a = Math.PI * 0.5; a >= 0; a -= 0.05) {
+        const x = tx + w/2 + Math.cos(a) * w/2;
+        const y = ty + Math.sin(a) * w*0.3;
+        ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fill();
+    },
+    hitTest(px, py, cx, cy, w) {
+      const dx = (px - cx) / (w/2);
+      const dy = (py - cy) / (w*0.3);
+      return dx*dx + dy*dy <= 1;
+    },
+    getCenter(x, y, w, h) { return { x: x + w/2, y: y - h }; },
+    getMaxRadius(w) { return w * 0.3; }
+  },
+
+  pentagon: {
+    drawTop(ctx, tx, ty, w, h, color) {
+      const cx = tx + w/2, cy = ty - h;
+      const verts = isoPolygon(cx, cy, w, 5, -Math.PI/2);
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      verts.forEach((v, i) => i === 0 ? ctx.moveTo(v[0], v[1]) : ctx.lineTo(v[0], v[1]));
+      ctx.closePath();
+      ctx.fill();
+    },
+    drawLeft(ctx, tx, ty, w, h, color) {
+      const cx = tx + w/2, cy = ty - h;
+      const verts = isoPolygon(cx, cy, w, 5, -Math.PI/2);
+      // 左侧面：连接顶面左下边缘到底面
+      ctx.fillStyle = darkenColor(color, 0.3);
+      // 边 2→3 的侧面
+      ctx.beginPath();
+      ctx.moveTo(verts[2][0], verts[2][1]);
+      ctx.lineTo(verts[3][0], verts[3][1]);
+      ctx.lineTo(verts[3][0], verts[3][1] + h);
+      ctx.lineTo(verts[2][0], verts[2][1] + h);
+      ctx.closePath();
+      ctx.fill();
+      // 边 1→2 的侧面
+      ctx.beginPath();
+      ctx.moveTo(verts[1][0], verts[1][1]);
+      ctx.lineTo(verts[2][0], verts[2][1]);
+      ctx.lineTo(verts[2][0], verts[2][1] + h);
+      ctx.lineTo(verts[1][0], verts[1][1] + h);
+      ctx.closePath();
+      ctx.fill();
+    },
+    drawRight(ctx, tx, ty, w, h, color) {
+      const cx = tx + w/2, cy = ty - h;
+      const verts = isoPolygon(cx, cy, w, 5, -Math.PI/2);
+      ctx.fillStyle = darkenColor(color, 0.15);
+      // 边 3→4 的侧面
+      ctx.beginPath();
+      ctx.moveTo(verts[3][0], verts[3][1]);
+      ctx.lineTo(verts[4][0], verts[4][1]);
+      ctx.lineTo(verts[4][0], verts[4][1] + h);
+      ctx.lineTo(verts[3][0], verts[3][1] + h);
+      ctx.closePath();
+      ctx.fill();
+      // 边 4→0 的侧面
+      ctx.beginPath();
+      ctx.moveTo(verts[4][0], verts[4][1]);
+      ctx.lineTo(verts[0][0], verts[0][1]);
+      ctx.lineTo(verts[0][0], verts[0][1] + h);
+      ctx.lineTo(verts[4][0], verts[4][1] + h);
+      ctx.closePath();
+      ctx.fill();
+    },
+    hitTest(px, py, cx, cy, w) {
+      return pointInPolygon(px, py, isoPolygon(cx, cy, w, 5, -Math.PI/2));
+    },
+    getCenter(x, y, w, h) { return { x: x + w/2, y: y - h }; },
+    getMaxRadius(w) { return w * 0.28; }
+  }
+};
+
+// === Platform 类 ===
+
+class Platform {
+  constructor(x, y, w, h, shapeType) {
+    this.x = x;
+    this.y = y;
+    this.w = w;
+    this.origW = w; // 原始宽度（缩小平台用）
+    this.h = h;
+    this.shapeType = shapeType || 'rectangle';
+    this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+    this.shape = SHAPES[this.shapeType];
+    // 移动平台
+    this.moving = false;
+    this.moveSpeed = 0;
+    this.moveRange = 0;
+    this.movePhase = Math.random() * Math.PI * 2;
+    this.baseX = x;
+    // 缩小平台
+    this.shrinking = false;
+    this.shrinkRate = 0;
+    this.minW = 25;
+    // 限时平台
+    this.timed = false;
+    this.timerDuration = 2000; // 2秒
+    this.timerStart = 0; // 落地时设置
+    this.timerActive = false;
+    this.collapsed = false;
+  }
+  update(dt) {
+    this.moveDeltaX = 0;
+    if (this.moving && !this.collapsed) {
+      const oldX = this.x;
+      this.movePhase += dt * this.moveSpeed;
+      this.x = this.baseX + Math.sin(this.movePhase) * this.moveRange;
+      this.moveDeltaX = this.x - oldX;
+    }
+    if (this.shrinking && !this.collapsed) {
+      this.w = Math.max(this.minW, this.w - this.shrinkRate * dt);
+    }
+    if (this.timerActive && !this.collapsed) {
+      const elapsed = Date.now() - this.timerStart;
+      if (elapsed >= this.timerDuration) {
+        this.collapsed = true;
+      }
+    }
+  }
+  getTimerRatio() {
+    if (!this.timerActive || this.collapsed) return 0;
+    return Math.min(1, (Date.now() - this.timerStart) / this.timerDuration);
+  }
+  draw(ox, oy) {
+    if (this.collapsed) return; // 塌陷的平台不画
+    const tx = this.x - ox, ty = this.y - oy;
+
+    // 限时平台闪烁效果
+    let alpha = 1;
+    if (this.timerActive && !this.collapsed) {
+      const ratio = this.getTimerRatio();
+      if (ratio > 0.5) {
+        alpha = 0.3 + Math.abs(Math.sin(Date.now() * 0.015)) * 0.7;
+      }
+    }
+    ctx.globalAlpha = alpha;
+
+    // 底部阴影
+    ctx.fillStyle = 'rgba(0,0,0,0.1)';
+    ctx.beginPath();
+    ctx.ellipse(tx + this.w/2, ty + this.w*0.1, this.w*0.4, this.w*0.1, 0, 0, Math.PI*2);
+    ctx.fill();
+    // 先画一个实心的前面填充，防止透出背景
+    if (this.shapeType === 'circle') {
+      ctx.fillStyle = darkenColor(this.color, 0.2);
+      ctx.beginPath();
+      ctx.ellipse(tx + this.w/2, ty - this.h, this.w/2, this.w*0.3, 0, 0, Math.PI);
+      ctx.lineTo(tx, ty);
+      ctx.ellipse(tx + this.w/2, ty, this.w/2, this.w*0.3, 0, Math.PI, 0, true);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      ctx.fillStyle = darkenColor(this.color, 0.2);
+      ctx.beginPath();
+      ctx.moveTo(tx, ty - this.h);
+      ctx.lineTo(tx + this.w, ty - this.h);
+      ctx.lineTo(tx + this.w, ty);
+      ctx.lineTo(tx, ty);
+      ctx.closePath();
+      ctx.fill();
+    }
+    this.shape.drawLeft(ctx, tx, ty, this.w, this.h, this.color);
+    this.shape.drawRight(ctx, tx, ty, this.w, this.h, this.color);
+    this.shape.drawTop(ctx, tx, ty, this.w, this.h, this.color);
+
+    // 特殊平台标记
+    const cx = tx + this.w/2, cy = ty - this.h;
+    if (this.moving) {
+      // 移动平台：顶面画左右箭头
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.font = '14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('↔', cx, cy + 5);
+    }
+    if (this.shrinking) {
+      // 缩小平台：顶面画收缩图标
+      ctx.fillStyle = 'rgba(255,100,100,0.5)';
+      ctx.font = '14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('⊘', cx, cy + 5);
+    }
+    if (this.timed && this.timerActive) {
+      // 限时平台：显示倒计时进度环
+      const ratio = this.getTimerRatio();
+      ctx.strokeStyle = ratio > 0.7 ? '#ff4444' : '#ffaa00';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 8, -Math.PI/2, -Math.PI/2 + Math.PI*2*ratio);
+      ctx.stroke();
+    }
+
+    ctx.globalAlpha = 1;
+  }
+  getTopCenter() { return this.shape.getCenter(this.x, this.y, this.w, this.h); }
+  hitTest(px, py) {
+    const c = this.getTopCenter();
+    return this.shape.hitTest(px, py, c.x, c.y, this.w);
+  }
+  getMaxRadius() { return this.shape.getMaxRadius(this.w); }
+}
+
+// === Player 类 ===
+
+class Player {
+  constructor(x, y) {
+    this.x = x; this.y = y;
+    this.w = 20; this.h = 40;
+    this.squash = 0;
+    this.onPlatform = 0;
+    this.bounce = 0;
+    this.rotation = 0;
+  }
+  draw(ox, oy) {
+    const px = this.x - ox, py = this.y - oy;
+    const bounceSquash = this.bounce > 0 ? Math.sin(this.bounce * Math.PI) * 0.15 : 0;
+    const totalSquash = this.squash + bounceSquash;
+    const squashH = this.h * (1 - totalSquash * 0.3);
+    const squashW = this.w * (1 + totalSquash * 0.2);
+    const squashOff = this.h - squashH;
+
+    ctx.save();
+    ctx.translate(px, py - squashH/2 + squashOff);
+    ctx.rotate(this.rotation);
+    ctx.translate(-px, -(py - squashH/2 + squashOff));
+
+    // 阴影
+    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    ctx.beginPath();
+    ctx.ellipse(px, py + 2, squashW*0.6, 4, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // 身体 - 用当前角色颜色
+    const charColor = roster ? roster.getCurrent().color : '#fff';
+    ctx.fillStyle = charColor;
+    ctx.beginPath();
+    const bodyX = px - squashW/2, bodyY = py - squashH + squashOff;
+    ctx.roundRect(bodyX, bodyY, squashW, squashH, [squashW/2, squashW/2, 4, 4]);
+    ctx.fill();
+
+    // 白色内圈
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.beginPath();
+    ctx.roundRect(bodyX + 3, bodyY + 3, squashW - 6, squashH - 6, [squashW/2 - 3, squashW/2 - 3, 2, 2]);
+    ctx.fill();
+
+    // 眼睛
+    ctx.fillStyle = '#1a1a2e';
+    const eyeY = bodyY + squashH * 0.35;
+    ctx.beginPath();
+    ctx.arc(px - 4, eyeY, 2.5, 0, Math.PI*2);
+    ctx.arc(px + 4, eyeY, 2.5, 0, Math.PI*2);
+    ctx.fill();
+
+    // 高光
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(px - 3, eyeY - 1, 1, 0, Math.PI*2);
+    ctx.arc(px + 5, eyeY - 1, 1, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+// === 常量 ===
+const MIN_JUMP = 10, MAX_JUMP = 350;
+const JUMP_DURATION = 800, MIN_JUMP_HEIGHT = 20, MAX_JUMP_HEIGHT = 150;
+const MIN_PLATFORM_W = 45, MAX_PLATFORM_W = 95, PLATFORM_H = 80;
+const CAMERA_LERP = 0.08;
+let jumpCount = 0; // 总跳跃次数，用于解锁难度机制
+
+// === StatusBar ===
+
+function updateStatusBar() {
+  if (!roster) return;
+  statusBarEl.innerHTML = '';
+  roster.characters.forEach((c, i) => {
+    const card = document.createElement('div');
+    card.className = 'char-card';
+    if (i === roster.currentIndex) card.classList.add('active');
+    if (!c.alive) card.classList.add('eliminated');
+    card.innerHTML = `
+      <div class="char-name" style="color:${c.color}">${c.name}</div>
+      <div class="char-score">${c.score}分</div>
+      <div class="char-health">${testMode ? '∞' : (c.alive ? '❤️'.repeat(c.health) : '💀')}</div>
+    `;
+    statusBarEl.appendChild(card);
+  });
+}
+
+// === 平台生成 ===
+
+function generateNextPlatform(basePlatform) {
+  const last = basePlatform || platforms[platforms.length - 1];
+  let newDir = Math.random() > 0.5 ? 1 : -1;
+  if (newDir === nextDir) {
+    sameDirCount++;
+    if (sameDirCount >= 3) {
+      newDir = -newDir;
+      sameDirCount = 1;
+    }
+  } else {
+    sameDirCount = 1;
+  }
+  nextDir = newDir;
+  const pw = MIN_PLATFORM_W + Math.random() * (MAX_PLATFORM_W - MIN_PLATFORM_W);
+  // 间距稍大一些
+  const minGap = (last.w + pw) / 2 + 40;
+  const gap = minGap + Math.random() * 140;
+  const nx = last.x + nextDir * gap * 0.5;
+  const ny = last.y - gap * 0.3;
+  const st = SHAPE_TYPES[Math.floor(Math.random() * SHAPE_TYPES.length)];
+  const p = new Platform(nx, ny, pw, PLATFORM_H, st);
+
+  // 根据跳跃次数解锁难度机制
+  if (jumpCount >= 15 && Math.random() < 0.4) {
+    // 移动平台
+    p.moving = true;
+    p.moveSpeed = 0.0008 + Math.random() * 0.0008;
+    p.moveRange = 15 + Math.random() * 20;
+    p.baseX = nx;
+  }
+  if (jumpCount >= 20 && Math.random() < 0.3) {
+    // 缩小平台
+    p.shrinking = true;
+    p.shrinkRate = 0.008 + Math.random() * 0.008;
+  }
+  if (jumpCount >= 25 && Math.random() < 0.3) {
+    // 限时平台
+    p.timed = true;
+  }
+
+  platforms.push(p);
+}
+
+// === 游戏初始化 ===
+
+function initGame(isTestMode) {
+  testMode = isTestMode || false;
+  particles = [];
+  charging = false;
+  chargeStart = 0;
+  chargePower = 0;
+  jumpAnim = null;
+  gameRunning = true;
+  falling = false;
+  fallSpeed = 0;
+  shakeDuration = 0;
+  shakeX = 0; shakeY = 0;
+  cameraX = 0; cameraY = 0;
+  targetCamX = 0; targetCamY = 0;
+  powerFill.style.width = '0%';
+
+  const char = new Character(0, '角色1', CHAR_COLORS[0]);
+  char.health = 5;
+  roster = new CharacterRoster([char]);
+
+  platforms = [new Platform(W/2 - 50, H - 100, 100, PLATFORM_H, 'rectangle')];
+  const tc = platforms[0].getTopCenter();
+  player = new Player(tc.x, tc.y);
+  lastSafePlatformIdx = 0;
+  lastSafeX = tc.x;
+  lastSafeY = tc.y;
+  slipping = false;
+  slipAnim = null;
+  fallToBase = null;
+  jumpCount = 0;
+  sameDirCount = 0;
+  lastSafePlatform = null;
+  generateNextPlatform();
+  updateStatusBar();
+}
+
+function showOverlay(isGameOver) {
+  overlay.style.display = 'flex';
+  const h1 = overlay.querySelector('h1');
+  const p = overlay.querySelector('p');
+  if (isGameOver && roster) {
+    finalScoreEl.style.display = 'block';
+    finalScoreEl.textContent = '总分: ' + roster.getTotalScore() + (testMode ? ' [测试模式]' : '');
+    charResultsEl.style.display = 'block';
+    charResultsEl.innerHTML = roster.characters.map(c =>
+      `<div style="color:${c.color}">${c.name}: ${c.score}分 ${c.alive ? '' : '(淘汰)'}</div>`
+    ).join('');
+    startBtn.textContent = '重新开始';
+    if (h1) h1.style.display = 'none';
+    if (p) p.style.display = 'none';
+  } else {
+    finalScoreEl.style.display = 'none';
+    charResultsEl.style.display = 'none';
+    startBtn.textContent = '开始游戏';
+    if (h1) h1.style.display = '';
+    if (p) p.style.display = '';
+  }
+}
+
+startBtn.addEventListener('click', function() {
+  initGame();
+  overlay.style.display = 'none';
+  lastTime = 0;
+  requestAnimationFrame(gameLoop);
+});
+
+testModeBtn.addEventListener('click', function() {
+  initGame(true);
+  overlay.style.display = 'none';
+  lastTime = 0;
+  requestAnimationFrame(gameLoop);
+});
+
+// === 蓄力系统 ===
+
+function startCharge() {
+  if (gameRunning && !jumpAnim && !charging && !falling && !slipping && !fallToBase) {
+    charging = true;
+    chargeStart = Date.now();
+  }
+}
+
+function releaseCharge() {
+  if (!charging) return;
+  const chargeTime = Date.now() - chargeStart;
+  const power = calculatePower(chargeTime, maxCharge);
+  charging = false;
+  chargePower = 0;
+  player.squash = 0;
+  powerFill.style.width = '0%';
+  startJump(power);
+}
+
+canvas.addEventListener('mousedown', e => { e.preventDefault(); startCharge(); });
+canvas.addEventListener('mouseup', e => { e.preventDefault(); releaseCharge(); });
+canvas.addEventListener('touchstart', e => { e.preventDefault(); startCharge(); });
+canvas.addEventListener('touchend', e => { e.preventDefault(); releaseCharge(); });
+
+// === 跳跃系统 ===
+
+function startJump(power) {
+  const dist = calculateJumpDistance(power, MIN_JUMP, MAX_JUMP);
+  // 跳跃高度和时长与距离成正比
+  const distRatio = (dist - MIN_JUMP) / (MAX_JUMP - MIN_JUMP);
+  const jumpH = MIN_JUMP_HEIGHT + distRatio * (MAX_JUMP_HEIGHT - MIN_JUMP_HEIGHT);
+  const jumpDur = 300 + distRatio * (JUMP_DURATION - 300); // 最短300ms，最长800ms
+  // 跳跃方向始终朝向下一个平台的中心
+  const nextPlat = platforms[platforms.length - 1];
+  const nextCenter = nextPlat.getTopCenter();
+  const dx = nextCenter.x - player.x;
+  const dy = nextCenter.y - player.y;
+  const dirLen = Math.sqrt(dx * dx + dy * dy);
+  const nx = dirLen > 0 ? dx / dirLen : 0;
+  const ny = dirLen > 0 ? dy / dirLen : -1;
+  jumpAnim = {
+    startX: player.x, startY: player.y,
+    targetX: player.x + nx * dist, targetY: player.y + ny * dist,
+    progress: 0, duration: jumpDur, height: jumpH,
+    dirSign: dx >= 0 ? 1 : -1,
+    power: power
+  };
+}
+
+// === 落点检测与计分 ===
+
+function checkLanding(x, y) {
+  for (let i = platforms.length - 1; i >= 0; i--) {
+    if (!platforms[i].collapsed && platforms[i].hitTest(x, y)) return { platform: platforms[i], index: i };
+  }
+  return null;
+}
+
+function handleLanding(platform, platformIdx, landX, landY) {
+  const center = platform.getTopCenter();
+  const dist = Math.sqrt((landX - center.x)**2 + (landY - center.y)**2);
+  const maxR = platform.getMaxRadius();
+
+  // 边缘滑落：检查人物脚部是否完全在形状内
+  // 人物脚部半径约8px，检测脚部边缘4个点是否都在形状内
+  const footR = 8;
+  const footPoints = [
+    [landX - footR, landY],
+    [landX + footR, landY],
+    [landX, landY - footR * 0.6],
+    [landX, landY + footR * 0.6]
+  ];
+  const insideCount = footPoints.filter(([fx, fy]) => platform.hitTest(fx, fy)).length;
+  if (insideCount < 3) {
+    // 脚没踩稳（少于3个点在平台内），摇摇欲坠掉下去
+    const angle = Math.atan2(landY - center.y, landX - center.x);
+    slipAnim = {
+      startX: landX, startY: landY,
+      angle: angle,
+      progress: 0,
+      duration: 800,
+      wobblePhase: 0
+    };
+    slipping = true;
+    player.x = landX;
+    player.y = landY;
+    player.rotation = 0;
+    return;
+  }
+
+  const points = calculateScore(dist, maxR);
+  const cur = roster.getCurrent();
+  cur.addScore(points);
+  jumpCount++;
+
+  // 玩家停在实际落点
+  player.x = landX;
+  player.y = landY;
+  player.onPlatform = platformIdx;
+  player.bounce = 1;
+  player.rotation = 0;
+  lastSafePlatformIdx = platformIdx;
+  lastSafeX = landX;
+  lastSafeY = landY;
+  lastSafePlatform = platform;
+
+  // 激活限时平台倒计时
+  if (platform.timed && !platform.timerActive) {
+    platform.timerActive = true;
+    platform.timerStart = Date.now();
+  }
+
+  // 分数弹出
+  const sx = landX - cameraX, sy = landY - cameraY;
+  showScorePop('+' + points + (points === 50 ? ' ✨' : ''), sx, sy);
+
+  if (points === 50) triggerShake(3, 120);
+
+  // 镜头
+  targetCamX = landX - W/2;
+  targetCamY = landY - H/2 + 80;
+
+  spawnParticles(landX, landY, points === 50);
+
+  // 清理：只保留当前平台及之前的，然后生成下一个
+  // 移除当前平台之后的所有旧平台（防止多余平台干扰方向）
+  if (platformIdx < platforms.length - 1) {
+    platforms.splice(platformIdx + 1);
+  }
+  // 清理当前平台之前的旧平台（保留最多2个历史）
+  if (platformIdx > 2) {
+    const remove = platformIdx - 2;
+    platforms.splice(0, remove);
+    player.onPlatform = Math.max(0, player.onPlatform - remove);
+    lastSafePlatformIdx = Math.max(0, lastSafePlatformIdx - remove);
+  }
+  generateNextPlatform(platform);
+
+  // 切换角色
+  roster.advance();
+  updateStatusBar();
+}
+
+function handleFail() {
+  const cur = roster.getCurrent();
+  cur.takeDamage();
+
+  if (roster.allEliminated()) {
+    gameRunning = false;
+    falling = true;
+    fallSpeed = 2;
+    updateStatusBar();
+    return;
+  }
+
+  // 找到最近的平台底部作为掉落目标
+  const safePlat = platforms[lastSafePlatformIdx];
+  const baseY = safePlat ? safePlat.y + 20 : player.y + PLATFORM_H + 20;
+
+  fallToBase = {
+    startX: player.x,
+    startY: player.y,
+    targetY: baseY,
+    progress: 0,
+    duration: 500,
+    impacted: false
+  };
+
+  updateStatusBar();
+}
+
+function triggerShake(intensity, duration) {
+  shakeDuration = duration;
+  shakeX = (Math.random() - 0.5) * intensity;
+  shakeY = (Math.random() - 0.5) * intensity;
+}
+
+function showScorePop(text, x, y) {
+  const el = document.createElement('div');
+  el.className = 'score-pop';
+  el.textContent = text;
+  el.style.left = (canvas.offsetLeft + x) + 'px';
+  el.style.top = (canvas.offsetTop + y - 40) + 'px';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 800);
+}
+
+// === 粒子系统 ===
+
+function spawnParticles(x, y, isPerfect) {
+  const count = isPerfect ? 20 : 8;
+  const colors = isPerfect
+    ? ['#ffd700','#ff6b6b','#00d2ff','#fff','#ff69b4']
+    : ['#aaa','#ccc','#888','#ddd'];
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 1 + Math.random() * 3;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 2,
+      alpha: 1,
+      decay: 0.01 + Math.random() * 0.03,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      size: 2 + Math.random() * 4
+    });
+  }
+}
+
+// 掉落到柱底的灰尘特效
+function spawnDustParticles(x, y) {
+  const colors = ['#8b7355','#a0926b','#c4b99a','#d4c9a8','#fff8dc'];
+  for (let i = 0; i < 12; i++) {
+    // 灰尘主要向两侧扩散
+    const angle = -Math.PI * 0.1 + Math.random() * Math.PI * 0.2 + (i < 6 ? Math.PI : 0);
+    const speed = 1.5 + Math.random() * 2.5;
+    particles.push({
+      x: x + (Math.random() - 0.5) * 10,
+      y: y + Math.random() * 5,
+      vx: Math.cos(angle) * speed,
+      vy: -Math.random() * 1.5,
+      alpha: 0.8,
+      decay: 0.015 + Math.random() * 0.02,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      size: 3 + Math.random() * 5
+    });
+  }
+}
+
+function updateParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy;
+    p.vy += 0.1;
+    p.alpha -= p.decay;
+    if (p.alpha <= 0) particles.splice(i, 1);
+  }
+}
+
+// === 镜头 ===
+
+function updateCamera(dt) {
+  cameraX += (targetCamX - cameraX) * CAMERA_LERP;
+  cameraY += (targetCamY - cameraY) * CAMERA_LERP;
+}
+
+// === 游戏主循环 ===
+
+function update(dt) {
+  // 更新所有平台（移动、缩小、限时）
+  for (const p of platforms) {
+    p.update(dt);
+  }
+
+  // 检查当前站立的平台状态
+  if (gameRunning && !jumpAnim && !falling && !slipping && !fallToBase && player) {
+    const curPlat = platforms[player.onPlatform];
+    if (curPlat) {
+      // 塌陷检测
+      if (curPlat.collapsed) {
+        const c = curPlat.getTopCenter();
+        spawnDustParticles(c.x, c.y);
+        triggerShake(5, 200);
+        handleFail();
+      }
+      // 玩家跟随移动平台
+      else if (curPlat.moving && curPlat.moveDeltaX !== 0) {
+        player.x += curPlat.moveDeltaX;
+        lastSafeX = player.x;
+      }
+      // 缩小平台：检测脚是否还在平台上
+      if (curPlat.shrinking && !curPlat.collapsed) {
+        if (!curPlat.hitTest(player.x, player.y)) {
+          // 脚下的平台缩到踩不住了
+          handleFail();
+        }
+      }
+    }
+  }
+
+  if (charging && player) {
+    chargePower = calculatePower(Date.now() - chargeStart, maxCharge);
+    player.squash = chargePower;
+    powerFill.style.width = (chargePower * 100) + '%';
+  }
+
+  if (jumpAnim) {
+    jumpAnim.progress += dt / jumpAnim.duration;
+    // 蓄力低于10%时不翻滚，只是小跳
+    if (jumpAnim.power >= 0.1) {
+      player.rotation = jumpAnim.progress * Math.PI * 2 * jumpAnim.dirSign;
+    } else {
+      player.rotation = 0;
+    }
+    if (jumpAnim.progress >= 1) {
+      jumpAnim.progress = 1;
+      player.x = jumpAnim.targetX;
+      player.y = jumpAnim.targetY;
+      player.rotation = 0;
+      const result = checkLanding(player.x, player.y);
+      if (result) {
+        handleLanding(result.platform, result.index, player.x, player.y);
+      } else {
+        handleFail();
+      }
+      jumpAnim = null;
+    } else {
+      const t = jumpAnim.progress;
+      player.x = jumpAnim.startX + (jumpAnim.targetX - jumpAnim.startX) * t;
+      player.y = calculateParabola(t, jumpAnim.startY, jumpAnim.targetY, jumpAnim.height);
+    }
+  }
+
+  // 边缘滑落动画
+  if (slipping && slipAnim) {
+    slipAnim.progress += dt / slipAnim.duration;
+    slipAnim.wobblePhase += dt * 0.02;
+    // 先摇晃一下，然后滑下去
+    if (slipAnim.progress < 0.4) {
+      // 摇晃阶段
+      const wobble = Math.sin(slipAnim.wobblePhase * 8) * 3 * (1 - slipAnim.progress / 0.4);
+      player.rotation = wobble * 0.1;
+    } else {
+      // 滑落阶段
+      const fallT = (slipAnim.progress - 0.4) / 0.6;
+      const slideSpeed = fallT * fallT * 80;
+      player.x = slipAnim.startX + Math.cos(slipAnim.angle) * slideSpeed;
+      player.y = slipAnim.startY + Math.sin(slipAnim.angle) * slideSpeed + fallT * fallT * 60;
+      player.rotation += dt * 0.008 * (slipAnim.angle > 0 ? 1 : -1);
+    }
+    if (slipAnim.progress >= 1) {
+      slipping = false;
+      slipAnim = null;
+      handleFail();
+    }
+  }
+
+  // 掉落到柱底动画
+  if (fallToBase) {
+    fallToBase.progress += dt / fallToBase.duration;
+    const t = Math.min(fallToBase.progress, 1);
+    // 加速下落 (easeIn)
+    const eased = t * t;
+    player.y = fallToBase.startY + (fallToBase.targetY - fallToBase.startY) * eased;
+    player.rotation += dt * 0.006;
+
+    // 落地瞬间
+    if (t >= 1 && !fallToBase.impacted) {
+      fallToBase.impacted = true;
+      player.rotation = 0;
+      // 落地灰尘特效
+      spawnDustParticles(player.x, player.y);
+      triggerShake(4, 150);
+    }
+
+    // 落地后短暂停留再复位
+    if (fallToBase.progress >= 1.6) {
+      fallToBase = null;
+      // 如果安全平台已塌陷，重置它（保留所有特殊属性）
+      const safePlat = platforms[lastSafePlatformIdx];
+      if (safePlat && safePlat.collapsed) {
+        safePlat.collapsed = false;
+        // 恢复缩小平台的宽度
+        if (safePlat.shrinking) {
+          safePlat.w = safePlat.origW;
+          safePlat.shrinking = false;
+        }
+        // 限时平台重新开始倒计时
+        if (safePlat.timed) {
+          safePlat.timerActive = true;
+          safePlat.timerStart = Date.now();
+        }
+      }
+      // 复位到安全位置
+      if (lastSafePlatform && lastSafePlatform.moving) {
+        const tc = lastSafePlatform.getTopCenter();
+        player.x = tc.x;
+        player.y = tc.y;
+        lastSafeX = tc.x;
+        lastSafeY = tc.y;
+      } else {
+        player.x = lastSafeX;
+        player.y = lastSafeY;
+      }
+      player.onPlatform = lastSafePlatformIdx;
+      player.rotation = 0;
+      targetCamX = player.x - W/2;
+      targetCamY = player.y - H/2 + 80;
+      roster.advance();
+      updateStatusBar();
+    }
+  }
+
+  if (player && player.bounce > 0) {
+    player.bounce -= dt * 0.004;
+    if (player.bounce < 0) player.bounce = 0;
+  }
+
+  if (falling) {
+    fallSpeed += 0.3;
+    player.y += fallSpeed;
+    player.rotation += 0.05;
+    if (player.y > cameraY + H + 100) {
+      falling = false;
+      showOverlay(true);
+    }
+  }
+
+  if (shakeDuration > 0) {
+    shakeDuration -= dt;
+    shakeX = (Math.random() - 0.5) * 4 * Math.max(0, shakeDuration / 150);
+    shakeY = (Math.random() - 0.5) * 4 * Math.max(0, shakeDuration / 150);
+  } else { shakeX = 0; shakeY = 0; }
+
+  updateParticles(dt);
+  updateCamera(dt);
+}
+
+function gameLoop(timestamp) {
+  if (lastTime === 0) lastTime = timestamp;
+  const dt = timestamp - lastTime;
+  lastTime = timestamp;
+  update(dt);
+  render();
+  if (gameRunning || falling || jumpAnim || slipping || fallToBase) {
+    requestAnimationFrame(gameLoop);
+  }
+}
+
+function render() {
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, W, H);
+  const ox = cameraX + shakeX, oy = cameraY + shakeY;
+
+  // 深度排序：Y 小的先画（远处先画）
+  const sorted = [...platforms].sort((a, b) => a.y - b.y);
+  for (const p of sorted) {
+    p.draw(ox, oy);
+  }
+
+  // 粒子
+  for (const p of particles) {
+    ctx.globalAlpha = Math.max(0, p.alpha);
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x - ox, p.y - oy, p.size, 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  if (player) player.draw(ox, oy);
+}
+
+</script>
+</body>
+</html>
