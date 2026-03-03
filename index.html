@@ -72,7 +72,7 @@
   #overlay {
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.75);
+    background: rgba(0,0,0,0.6);
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -153,8 +153,9 @@
     <p>按住蓄力，松开跳跃</p>
     <div class="final-score" id="finalScore" style="display:none"></div>
     <div class="char-results" id="charResults" style="display:none"></div>
-    <button id="startBtn">开始游戏</button>
+    <button id="startBtn">经典模式</button>
     <button id="testModeBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#0f3460;color:#fff;cursor:pointer;margin-top:10px;">测试模式</button>
+    <button id="homeBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#555;color:#fff;cursor:pointer;margin-top:10px;display:none;">返回首页</button>
     <div id="highScoreArea" style="margin-top:16px;text-align:center;">
       <div id="highScoreDisplay" style="color:#ffd700;font-size:16px;"></div>
       <button id="clearScoreBtn" style="padding:4px 16px;font-size:12px;border:none;border-radius:6px;background:#555;color:#aaa;cursor:pointer;margin-top:6px;display:none;">清空记录</button>
@@ -177,6 +178,7 @@ const backBtn = document.getElementById('backBtn');
 const restartBtn = document.getElementById('restartBtn');
 const highScoreDisplay = document.getElementById('highScoreDisplay');
 const clearScoreBtn = document.getElementById('clearScoreBtn');
+const homeBtn = document.getElementById('homeBtn');
 
 const W = 600, H = 650;
 canvas.width = W;
@@ -821,19 +823,26 @@ function showOverlay(isGameOver) {
       `<div style="color:${c.color}">${c.name}: ${c.score}分 ${c.alive ? '' : '(淘汰)'}</div>`
     ).join('');
     startBtn.textContent = '重新开始';
+    testModeBtn.style.display = 'none';
+    homeBtn.style.display = '';
     if (h1) h1.style.display = 'none';
     if (p) p.style.display = 'none';
+    stopHomeBg();
   } else {
     finalScoreEl.style.display = 'none';
     charResultsEl.style.display = 'none';
-    startBtn.textContent = '开始游戏';
+    startBtn.textContent = '经典模式';
+    testModeBtn.style.display = '';
+    homeBtn.style.display = 'none';
     if (h1) h1.style.display = '';
     if (p) p.style.display = '';
+    startHomeBg();
   }
   updateHighScoreDisplay();
 }
 
 startBtn.addEventListener('click', function() {
+  stopHomeBg();
   initGame();
   overlay.style.display = 'none';
   lastTime = 0;
@@ -841,6 +850,7 @@ startBtn.addEventListener('click', function() {
 });
 
 testModeBtn.addEventListener('click', function() {
+  stopHomeBg();
   initGame(true);
   overlay.style.display = 'none';
   lastTime = 0;
@@ -867,8 +877,141 @@ clearScoreBtn.addEventListener('click', function() {
   clearHighScore();
 });
 
-// 页面加载时显示最高分
+homeBtn.addEventListener('click', function() {
+  gameRunning = false;
+  falling = false;
+  jumpAnim = null;
+  slipping = false;
+  fallToBase = null;
+  showOverlay(false);
+});
+
+// === 首页背景动画 ===
+let homeBgRunning = false;
+let homeBgRaf = null;
+let homeBgPlatforms = [];
+let homeBgPlayer = { x: 0, y: 0, vy: 0, onPlat: 0, jumping: false, t: 0, startX: 0, startY: 0, targetX: 0, targetY: 0, height: 0, duration: 0, rotation: 0 };
+
+function initHomeBg() {
+  homeBgPlatforms = [];
+  const startX = 120, startY = H - 120;
+  for (let i = 0; i < 7; i++) {
+    const w = 50 + Math.random() * 40;
+    const st = SHAPE_TYPES[Math.floor(Math.random() * SHAPE_TYPES.length)];
+    const x = startX + i * 80 + (Math.random() - 0.5) * 30;
+    const y = startY - i * 55 - Math.random() * 30;
+    const p = new Platform(x, y, w, PLATFORM_H, st);
+    homeBgPlatforms.push(p);
+  }
+  const tc = homeBgPlatforms[0].getTopCenter();
+  homeBgPlayer = { x: tc.x, y: tc.y, onPlat: 0, jumping: false, t: 0, startX: tc.x, startY: tc.y, targetX: 0, targetY: 0, height: 0, duration: 600, rotation: 0, waitTimer: 0 };
+}
+
+function updateHomeBg(dt) {
+  const bp = homeBgPlayer;
+  if (!bp.jumping) {
+    bp.waitTimer += dt;
+    if (bp.waitTimer > 800) {
+      bp.waitTimer = 0;
+      bp.jumping = true;
+      bp.t = 0;
+      bp.startX = bp.x;
+      bp.startY = bp.y;
+      const nextIdx = (bp.onPlat + 1) % homeBgPlatforms.length;
+      const tc = homeBgPlatforms[nextIdx].getTopCenter();
+      bp.targetX = tc.x;
+      bp.targetY = tc.y;
+      bp.height = 40 + Math.random() * 60;
+      bp.duration = 500 + Math.random() * 300;
+      bp.onPlat = nextIdx;
+    }
+  } else {
+    bp.t += dt / bp.duration;
+    if (bp.t >= 1) {
+      bp.t = 1;
+      bp.x = bp.targetX;
+      bp.y = bp.targetY;
+      bp.jumping = false;
+      bp.rotation = 0;
+      // 跳到最后一个平台后回到第一个
+      if (bp.onPlat >= homeBgPlatforms.length - 1) {
+        bp.onPlat = -1; // 下次会变成0
+        const tc = homeBgPlatforms[0].getTopCenter();
+        bp.x = tc.x;
+        bp.y = tc.y;
+        bp.onPlat = 0;
+        bp.waitTimer = -400;
+      }
+    } else {
+      bp.x = bp.startX + (bp.targetX - bp.startX) * bp.t;
+      bp.y = calculateParabola(bp.t, bp.startY, bp.targetY, bp.height);
+      bp.rotation = bp.t * Math.PI * 2;
+    }
+  }
+}
+
+function renderHomeBg() {
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, W, H);
+  // 画平台（半透明）
+  ctx.globalAlpha = 0.35;
+  for (const p of homeBgPlatforms) {
+    p.draw(0, 0);
+  }
+  ctx.globalAlpha = 0.5;
+  // 画小人
+  const bp = homeBgPlayer;
+  const px = bp.x, py = bp.y;
+  const squashH = 40, squashW = 20;
+  ctx.save();
+  ctx.translate(px, py - squashH / 2);
+  ctx.rotate(bp.rotation);
+  ctx.translate(-px, -(py - squashH / 2));
+  ctx.fillStyle = CHAR_COLORS[0];
+  ctx.beginPath();
+  ctx.roundRect(px - squashW / 2, py - squashH, squashW, squashH, [squashW / 2, squashW / 2, 4, 4]);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.beginPath();
+  ctx.roundRect(px - squashW / 2 + 3, py - squashH + 3, squashW - 6, squashH - 6, [squashW / 2 - 3, squashW / 2 - 3, 2, 2]);
+  ctx.fill();
+  ctx.fillStyle = '#1a1a2e';
+  const eyeY = py - squashH + squashH * 0.35;
+  ctx.beginPath();
+  ctx.arc(px - 4, eyeY, 2.5, 0, Math.PI * 2);
+  ctx.arc(px + 4, eyeY, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+let homeBgLastTime = 0;
+function homeBgLoop(timestamp) {
+  if (!homeBgRunning) return;
+  if (homeBgLastTime === 0) homeBgLastTime = timestamp;
+  const dt = timestamp - homeBgLastTime;
+  homeBgLastTime = timestamp;
+  updateHomeBg(dt);
+  renderHomeBg();
+  homeBgRaf = requestAnimationFrame(homeBgLoop);
+}
+
+function startHomeBg() {
+  if (homeBgRunning) return;
+  homeBgRunning = true;
+  homeBgLastTime = 0;
+  initHomeBg();
+  homeBgRaf = requestAnimationFrame(homeBgLoop);
+}
+
+function stopHomeBg() {
+  homeBgRunning = false;
+  if (homeBgRaf) { cancelAnimationFrame(homeBgRaf); homeBgRaf = null; }
+}
+
+// 页面加载时显示最高分和启动首页背景
 updateHighScoreDisplay();
+startHomeBg();
 
 // === 蓄力系统 ===
 
