@@ -446,6 +446,7 @@ class Platform {
     this.shrinking = false;
     this.shrinkRate = 0;
     this.minW = 25;
+    this.shrinkDir = -1; // -1=缩小, 1=放大
     // 限时平台
     this.timed = false;
     this.timerDuration = 2000; // 2秒
@@ -462,7 +463,14 @@ class Platform {
       this.moveDeltaX = this.x - oldX;
     }
     if (this.shrinking && !this.collapsed) {
-      this.w = Math.max(this.minW, this.w - this.shrinkRate * dt);
+      this.w += this.shrinkDir * this.shrinkRate * dt;
+      if (this.w <= this.minW) {
+        this.w = this.minW;
+        this.shrinkDir = 1; // 开始放大
+      } else if (this.w >= this.origW) {
+        this.w = this.origW;
+        this.shrinkDir = -1; // 开始缩小
+      }
     }
     if (this.timerActive && !this.collapsed) {
       const elapsed = Date.now() - this.timerStart;
@@ -868,6 +876,11 @@ function handleLanding(platform, platformIdx, landX, landY) {
   lastSafeX = landX;
   lastSafeY = landY;
   lastSafePlatform = platform;
+
+  // 落地后停止缩放平台
+  if (platform.shrinking) {
+    platform.shrinking = false;
+  }
 
   // 激活限时平台倒计时
   if (platform.timed && !platform.timerActive) {
