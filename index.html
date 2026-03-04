@@ -1303,8 +1303,8 @@ function handleLanding(platform, platformIdx, landX, landY) {
   if (points > 0) cur.addScore(points);
   if (landedOnNewPlatform) jumpCount++;
 
-  // 20关通关判定
-  if (jumpCount >= 20 && landedOnNewPlatform) {
+  // 40关通关判定
+  if (jumpCount >= 40 && landedOnNewPlatform) {
     player.x = landX;
     player.y = landY;
     player.rotation = 0;
