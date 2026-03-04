@@ -2006,7 +2006,10 @@ function showArenaRoom(roomState) {
     <div style="font-size:36px;color:#ffd700;letter-spacing:8px;margin:10px 0;cursor:pointer;" id="arenaRoomCode" title="点击复制">${roomState.code}</div>
     <p style="color:#aaa;font-size:12px;margin-bottom:10px;">点击房间码复制，分享给朋友</p>
     <div id="arenaPlayerList" style="margin:10px 0;"></div>
-    ${isHost ? '<button id="arenaStartBtn" style="padding:10px 30px;font-size:18px;border:none;border-radius:8px;background:#e94560;color:#fff;cursor:pointer;margin:6px;">开始游戏</button>' : '<p style="color:#aaa;">等待房主开始游戏...</p>'}
+    <div style="display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;">
+      ${isHost ? '<button id="arenaAddBotBtn" style="padding:8px 20px;font-size:14px;border:none;border-radius:6px;background:#0f3460;color:#fff;cursor:pointer;">🤖 添加机器人</button>' : ''}
+      ${isHost ? '<button id="arenaStartBtn" style="padding:10px 30px;font-size:18px;border:none;border-radius:8px;background:#e94560;color:#fff;cursor:pointer;">开始游戏</button>' : '<p style="color:#aaa;">等待房主开始游戏...</p>'}
+    </div>
     <button id="arenaLeaveBtn" style="padding:6px 20px;font-size:14px;border:none;border-radius:6px;background:#555;color:#fff;cursor:pointer;margin-top:10px;">离开房间</button>
     <div id="arenaStatus" style="color:#ff6b6b;margin-top:8px;font-size:13px;"></div>
   `;
@@ -2015,6 +2018,7 @@ function showArenaRoom(roomState) {
   };
   if (isHost) {
     document.getElementById('arenaStartBtn').onclick = () => arenaNet.send({ type: 'start_game' });
+    document.getElementById('arenaAddBotBtn').onclick = () => arenaNet.send({ type: 'add_bot' });
   }
   document.getElementById('arenaLeaveBtn').onclick = () => {
     arenaNet.disconnect();
@@ -2027,9 +2031,15 @@ function showArenaRoom(roomState) {
 function updateArenaPlayerList(players) {
   const el = document.getElementById('arenaPlayerList');
   if (!el) return;
-  el.innerHTML = players.map(p =>
-    `<div style="color:${p.color};font-size:15px;margin:3px 0;">${p.name} ${p.id === arenaRoomState.hostId ? '👑' : ''} ${!p.connected ? '(离线)' : ''}</div>`
-  ).join('');
+  const isHost = arenaRoomState && arenaRoomState.hostId === arenaLocalPlayerId;
+  el.innerHTML = players.map(p => {
+    const hostBadge = p.id === arenaRoomState.hostId ? ' 👑' : '';
+    const offlineBadge = !p.connected && !p.isBot ? ' (离线)' : '';
+    const removeBtn = isHost && p.isBot && arenaRoomState.phase !== 'playing'
+      ? ` <span style="cursor:pointer;font-size:12px;color:#ff6b6b;margin-left:6px;" onclick="arenaNet.send({type:'remove_bot',botId:'${p.id}'})">✕移除</span>`
+      : '';
+    return `<div style="color:${p.color};font-size:15px;margin:3px 0;">${p.name}${hostBadge}${offlineBadge}${removeBtn}</div>`;
+  }).join('');
 }
 
 function showArenaDisconnect() {
@@ -2106,6 +2116,11 @@ function handleArenaMessage(msg) {
       break;
     case 'room_snapshot':
       arenaRoomState = msg.room;
+      break;
+    case 'room_reset':
+      arenaMode = true;
+      gameRunning = false;
+      showArenaRoom(msg.room);
       break;
     case 'error':
       const se = document.getElementById('arenaStatus');
@@ -2331,7 +2346,7 @@ function arenaShowRankScreen(rankings) {
   `;
   overlay.innerHTML = html;
   document.getElementById('arenaAgainBtn').onclick = () => {
-    if (arenaRoomState) showArenaRoom(arenaRoomState);
+    arenaNet.send({ type: 'restart_room' });
   };
   document.getElementById('arenaHomeBtn').onclick = () => {
     if (arenaNet) arenaNet.disconnect();

@@ -5,6 +5,8 @@ const PORT = process.env.PORT || 3000;
 const HEARTBEAT_TIMEOUT = 5000;
 const ROOM_DESTROY_DELAY = 30000;
 const CHAR_COLORS = ['#e94560','#00b4d8','#fb8500','#06d6a0','#8338ec','#ff6b6b'];
+const BOT_NAMES = ['小明','小红','小蓝','小绿','小紫'];
+let botIdCounter = 0;
 
 // === 工具函数 ===
 let playerIdCounter = 0;
@@ -23,7 +25,7 @@ function generateRoomCode(existingCodes) {
 function broadcast(room, msg, excludeId) {
   const data = JSON.stringify(msg);
   for (const [id, p] of room.players) {
-    if (id !== excludeId && p.connected && p.ws.readyState === 1) {
+    if (id !== excludeId && p.connected && !p.isBot && p.ws && p.ws.readyState === 1) {
       p.ws.send(data);
     }
   }
@@ -37,9 +39,8 @@ function broadcastAll(room, msg) { broadcast(room, msg); }
 
 function getPlayerInfoList(room) {
   const list = [];
-  let colorIdx = 0;
   for (const [id, p] of room.players) {
-    list.push({ id, name: p.name, color: p.color, connected: p.connected });
+    list.push({ id, name: p.name, color: p.color, connected: p.connected, isBot: !!p.isBot });
   }
   return list;
 }
@@ -121,17 +122,204 @@ function removePlayer(playerId) {
   if (!room) return;
   room.players.delete(playerId);
   playerRooms.delete(playerId);
-  // Host 转移
+  // Host 转移（只转给真人）
   if (room.hostId === playerId && room.players.size > 0) {
-    const nextHost = room.players.keys().next().value;
-    room.hostId = nextHost;
-    broadcastAll(room, { type: 'host_changed', newHostId: nextHost });
+    let nextHost = null;
+    for (const [id, p] of room.players) {
+      if (!p.isBot) { nextHost = id; break; }
+    }
+    if (nextHost) {
+      room.hostId = nextHost;
+      broadcastAll(room, { type: 'host_changed', newHostId: nextHost });
+    }
   }
   broadcastAll(room, { type: 'player_list_update', players: getPlayerInfoList(room) });
-  // 空房间销毁
-  if (room.players.size === 0) {
+  // 空房间销毁（只看真人）
+  const hasHumans = [...room.players.values()].some(p => !p.isBot);
+  if (!hasHumans) {
     rooms.delete(roomCode);
+    for (const [id] of room.players) playerRooms.delete(id);
   }
+}
+
+// === AI 机器人 ===
+
+function addBot(room) {
+  if (room.players.size >= 6) return { error: '房间已满' };
+  if (room.phase !== 'waiting') return { error: '游戏已开始' };
+  const botId = 'bot_' + (++botIdCounter) + '_' + Date.now().toString(36);
+  const nameIdx = [...room.players.values()].filter(p => p.isBot).length;
+  const botName = '🤖 ' + (BOT_NAMES[nameIdx] || ('机器人' + (nameIdx + 1)));
+  const colorIdx = room.players.size % CHAR_COLORS.length;
+  const bot = createServerPlayer(botId, botName, null, CHAR_COLORS[colorIdx]);
+  bot.isBot = true;
+  bot.connected = true;
+  room.players.set(botId, bot);
+  playerRooms.set(botId, room.code);
+  return { botId };
+}
+
+function removeBot(room, botId) {
+  const player = room.players.get(botId);
+  if (!player || !player.isBot) return { error: '不是机器人' };
+  if (room.phase !== 'waiting') return { error: '游戏已开始' };
+  room.players.delete(botId);
+  playerRooms.delete(botId);
+  return {};
+}
+
+// Bot AI: 自动执行回合
+function botPlayTurn(room, botId) {
+  const bot = room.players.get(botId);
+  if (!bot || !bot.isBot) return;
+  if (room.phase !== 'playing') return;
+
+  // 1. 先尝试使用道具
+  if (bot.items.length > 0) {
+    const item = bot.items[0];
+    let targetId = null;
+    if (item === 'pushback' || item === 'freeze') {
+      // 选择领先最多的对手
+      const opponents = [...room.players.entries()]
+        .filter(([id]) => id !== botId)
+        .sort((a, b) => b[1].platformIndex - a[1].platformIndex);
+      if (opponents.length > 0) targetId = opponents[0][0];
+    }
+    if (item !== 'pushback' && item !== 'freeze' || targetId) {
+      const result = useItem(room, botId, item, targetId);
+      if (!result.error) {
+        broadcastAll(room, { type: 'item_used', playerId: botId, itemType: item, targetId, effect: result.effect });
+        if (result.effect && result.effect.newQuota !== undefined) {
+          // speed_boost 更新了 quota，继续
+        }
+      }
+    }
+  }
+
+  // 2. 掷骰子
+  rollDice(room, botId);
+
+  // 3. 模拟跳跃（延迟执行，让客户端有时间看动画）
+  let jumpsDone = 0;
+  const quota = room.currentTurnQuota;
+
+  function doNextJump() {
+    if (room.phase !== 'playing') return;
+    const currentId = room.turnOrder[room.currentTurnIndex];
+    if (currentId !== botId) return;
+    if (room.currentTurnQuota <= 0) return;
+
+    // Bot 跳跃成功率：70%（必中卡时100%）
+    let success = Math.random() < 0.7;
+    if (bot.autoLandRemaining > 0) {
+      success = true;
+      bot.autoLandRemaining--;
+    }
+
+    const targetIndex = bot.platformIndex + 1;
+    const chargePower = 0.4 + Math.random() * 0.4; // 模拟蓄力
+
+    // 广播跳跃动画
+    broadcastAll(room, { type: 'jump_broadcast', playerId: botId, platformIndex: bot.platformIndex - 1, chargePower });
+
+    // 延迟后报告结果
+    setTimeout(() => {
+      if (room.phase !== 'playing') return;
+      const cid = room.turnOrder[room.currentTurnIndex];
+      if (cid !== botId) return;
+
+      reportJumpResult(room, botId, success, success ? targetIndex : bot.platformIndex);
+
+      // 如果成功落在 Mystery_Platform，触发事件
+      if (success && room.phase === 'playing') {
+        // 需要检查赛道上该平台是否是 mystery（服务端不存储赛道，用概率模拟）
+        // 实际上赛道是客户端生成的，服务端不知道哪些是 mystery
+        // 所以让客户端来触发 trigger_mystery，但 bot 没有客户端
+        // 解决方案：服务端也用 seed 生成赛道信息
+        checkBotMystery(room, botId);
+      }
+
+      // 继续下一跳
+      if (room.currentTurnQuota > 0 && room.turnOrder[room.currentTurnIndex] === botId) {
+        setTimeout(doNextJump, 800);
+      }
+    }, 600);
+  }
+
+  // 延迟开始第一跳（给客户端时间显示骰子结果）
+  setTimeout(doNextJump, 1000);
+}
+
+// Bot mystery 平台检查：用 seed 重新生成赛道判断
+function checkBotMystery(room, botId) {
+  const bot = room.players.get(botId);
+  if (!bot) return;
+  const mysteryFlags = generateMysteryFlagsExact(room.seed);
+  const platIdx = bot.platformIndex; // 1-based
+  if (platIdx >= 2 && platIdx <= 19 && mysteryFlags[platIdx - 1]) {
+    const result = triggerMysteryPlatform(room, botId);
+    if (result) {
+      broadcastAll(room, { type: 'mystery_result', playerId: botId, ...result });
+      if (result.effects) {
+        broadcastAll(room, { type: 'event_effect', event: result.event, affectedPlayers: result.effects });
+      }
+      if (result.winner) {
+        endGame(room, result.winner);
+      }
+    }
+  }
+}
+
+// 服务端版 mulberry32（与客户端一致）
+function mulberry32Server(seed) {
+  let t = seed | 0;
+  return function() {
+    t = (t + 0x6D2B79F5) | 0;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// 生成赛道的 mystery 标记数组（与客户端 generateRacetrack 的 PRNG 调用顺序完全一致）
+function generateMysteryFlagsExact(seed) {
+  const prng = mulberry32Server(seed);
+  const totalPlatforms = 20;
+  const flags = [false]; // 平台0（起点）
+  let lastMoving = false;
+
+  for (let i = 1; i < totalPlatforms; i++) {
+    prng(); // 方向 newDir
+    prng(); // 平台宽度 pw
+    prng(); // 间距 gap（只有一次 prng）
+    prng(); // 形状 st
+    prng(); // 颜色
+    prng(); // movePhase
+
+    const isLast = (i === totalPlatforms - 1);
+    const mysteryRoll = prng(); // isMystery
+    flags.push(!isLast && mysteryRoll < 0.2);
+
+    const specialRoll = prng(); // specialRoll
+    // 根据 specialRoll 的值，可能有额外的 prng 调用
+    if (!lastMoving && !isLast && specialRoll < 0.25) {
+      // moving platform
+      prng(); // moveSpeed
+      prng(); // moveRange
+      lastMoving = true;
+    } else if (!isLast && specialRoll < 0.40) {
+      // shrinking
+      prng(); // shrinkRate
+      lastMoving = false;
+    } else if (!isLast && specialRoll < 0.50) {
+      // timed
+      prng(); // timerDuration
+      lastMoving = false;
+    } else {
+      lastMoving = false;
+    }
+  }
+  return flags;
 }
 
 // === 事件仲裁器 ===
@@ -354,13 +542,18 @@ function startTurn(room) {
     return;
   }
 
-  // 断线玩家跳过
-  if (!player.connected) {
+  // 断线的真人玩家跳过（机器人永远在线）
+  if (!player.isBot && !player.connected) {
     advanceTurn(room);
     return;
   }
 
   broadcastAll(room, { type: 'turn_start', playerId, roundNumber: room.roundNumber });
+
+  // 机器人自动执行回合
+  if (player.isBot) {
+    setTimeout(() => botPlayTurn(room, playerId), 500);
+  }
 }
 
 function rollDice(room, playerId) {
@@ -504,10 +697,10 @@ function handleDisconnect(playerId) {
   broadcastAll(room, { type: 'player_disconnected', playerId });
   broadcastAll(room, { type: 'player_list_update', players: getPlayerInfoList(room) });
 
-  // Host 转移
+  // Host 转移（只转给真人）
   if (room.hostId === playerId) {
     for (const [id, p] of room.players) {
-      if (p.connected) {
+      if (p.connected && !p.isBot) {
         room.hostId = id;
         broadcastAll(room, { type: 'host_changed', newHostId: id });
         break;
@@ -523,9 +716,9 @@ function handleDisconnect(playerId) {
     }
   }
 
-  // 检查是否所有玩家断线
-  const allDisconnected = [...room.players.values()].every(p => !p.connected);
-  if (allDisconnected) {
+  // 检查是否所有真人玩家断线
+  const allHumansDisconnected = [...room.players.values()].every(p => p.isBot || !p.connected);
+  if (allHumansDisconnected) {
     room.destroyTimer = setTimeout(() => {
       rooms.delete(roomCode);
       for (const [id] of room.players) playerRooms.delete(id);
@@ -681,6 +874,58 @@ function handleMessage(ws, msg) {
     }
     case 'reconnect': {
       handleReconnect(ws, msg.playerId, msg.roomCode);
+      break;
+    }
+    case 'add_bot': {
+      const roomCode = playerRooms.get(playerId);
+      const room = roomCode ? rooms.get(roomCode) : null;
+      if (!room) { sendTo(ws, { type: 'error', message: '未在房间中' }); break; }
+      if (room.hostId !== playerId) { sendTo(ws, { type: 'error', message: '只有房主可以添加机器人' }); break; }
+      const result = addBot(room);
+      if (result.error) {
+        sendTo(ws, { type: 'error', message: result.error });
+      } else {
+        broadcastAll(room, { type: 'player_list_update', players: getPlayerInfoList(room) });
+      }
+      break;
+    }
+    case 'remove_bot': {
+      const roomCode = playerRooms.get(playerId);
+      const room = roomCode ? rooms.get(roomCode) : null;
+      if (!room) { sendTo(ws, { type: 'error', message: '未在房间中' }); break; }
+      if (room.hostId !== playerId) { sendTo(ws, { type: 'error', message: '只有房主可以移除机器人' }); break; }
+      const result = removeBot(room, msg.botId);
+      if (result.error) {
+        sendTo(ws, { type: 'error', message: result.error });
+      } else {
+        broadcastAll(room, { type: 'player_list_update', players: getPlayerInfoList(room) });
+      }
+      break;
+    }
+    case 'restart_room': {
+      const roomCode = playerRooms.get(playerId);
+      const room = roomCode ? rooms.get(roomCode) : null;
+      if (!room) { sendTo(ws, { type: 'error', message: '未在房间中' }); break; }
+      if (room.phase === 'playing') { sendTo(ws, { type: 'error', message: '游戏进行中' }); break; }
+      room.phase = 'waiting';
+      room.turnOrder = [];
+      room.currentTurnIndex = 0;
+      room.currentTurnQuota = 0;
+      room.roundNumber = 0;
+      room.traps.clear();
+      room.lastEvents.clear();
+      for (const [id, p] of room.players) {
+        p.platformIndex = 1;
+        p.items = [];
+        p.skipTurns = 0;
+        p.diceModifier = null;
+        p.hasShield = false;
+        p.totalJumps = 0;
+        p.successfulJumps = 0;
+        p.eventsTriggered = 0;
+        p.autoLandRemaining = 0;
+      }
+      broadcastAll(room, { type: 'room_reset', room: getRoomState(room) });
       break;
     }
     default:
