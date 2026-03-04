@@ -156,6 +156,7 @@
     <div class="char-results" id="charResults" style="display:none"></div>
     <button id="startBtn">经典模式</button>
     <button id="testModeBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#0f3460;color:#fff;cursor:pointer;margin-top:10px;">测试模式</button>
+    <button id="arenaModeBtn" style="padding:12px 40px;font-size:20px;border:none;border-radius:8px;background:#533483;color:#fff;cursor:pointer;margin-top:10px;">竞技模式</button>
     <button id="homeBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#555;color:#fff;cursor:pointer;margin-top:10px;display:none;">返回首页</button>
     <div id="highScoreArea" style="margin-top:16px;text-align:center;">
       <div id="highScoreDisplay" style="color:#ffd700;font-size:16px;"></div>
@@ -390,6 +391,99 @@ const SFX = {
     playTone(180, 0.4, 'sawtooth', 0.1, 50);
   }
 };
+
+// === Mulberry32 伪随机数生成器（竞技模式用） ===
+
+function mulberry32(seed) {
+  let t = seed | 0;
+  return function() {
+    t = (t + 0x6D2B79F5) | 0;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function seededRandom(prng, min, max) {
+  return min + Math.floor(prng() * (max - min + 1));
+}
+
+// === 确定性赛道生成（竞技模式用） ===
+
+function generateRacetrack(seed) {
+  const prng = mulberry32(seed);
+  const totalPlatforms = 20;
+  const racetrack = [];
+  let dir = 1;
+  let sameCount = 0;
+
+  // 第1个平台：起点
+  const startPlat = new Platform(W / 2 - 50, H - 100, 100, PLATFORM_H, 'rectangle');
+  startPlat.isMystery = false;
+  startPlat.isStart = true;
+  startPlat.isFinish = false;
+  racetrack.push(startPlat);
+
+  let lastPlat = startPlat;
+  let lastMoving = false;
+
+  for (let i = 1; i < totalPlatforms; i++) {
+    // 方向
+    let newDir = prng() > 0.5 ? 1 : -1;
+    if (newDir === dir) {
+      sameCount++;
+      if (sameCount >= 3) { newDir = -newDir; sameCount = 1; }
+    } else {
+      sameCount = 1;
+    }
+    dir = newDir;
+
+    // 平台宽度
+    const pw = Math.max(MIN_PLATFORM_W, MIN_PLATFORM_W + prng() * (MAX_PLATFORM_W - MIN_PLATFORM_W));
+    // 间距
+    const minGap = (lastPlat.w + pw) / 2 + 60;
+    const gap = minGap + prng() * 80;
+    const nx = lastPlat.x + dir * gap * 0.5;
+    const ny = lastPlat.y - gap * 0.3;
+    // 形状
+    const st = SHAPE_TYPES[Math.floor(prng() * SHAPE_TYPES.length)];
+    const p = new Platform(nx, ny, pw, PLATFORM_H, st);
+    // 颜色也用 seeded
+    p.color = COLORS[Math.floor(prng() * COLORS.length)];
+    p.movePhase = prng() * Math.PI * 2;
+
+    // Mystery_Platform：第2-19个平台，20%概率
+    const isLast = (i === totalPlatforms - 1);
+    p.isMystery = (!isLast && prng() < 0.2);
+    p.isStart = false;
+    p.isFinish = isLast;
+
+    // 特殊平台（互斥，不与上一个移动平台相邻）
+    const specialRoll = prng();
+    if (!lastMoving && !isLast && specialRoll < 0.25) {
+      p.moving = true;
+      p.moveSpeed = 0.0008 + prng() * 0.0008;
+      p.moveRange = 16 + prng() * 20;
+      p.baseX = nx;
+      lastMoving = true;
+    } else if (!isLast && specialRoll < 0.40) {
+      p.shrinking = true;
+      p.shrinkRate = 0.008 + prng() * 0.006;
+      lastMoving = false;
+    } else if (!isLast && specialRoll < 0.50) {
+      p.timed = true;
+      p.timerDuration = 2000 + prng() * 500;
+      lastMoving = false;
+    } else {
+      lastMoving = false;
+    }
+
+    racetrack.push(p);
+    lastPlat = p;
+  }
+
+  return racetrack;
+}
 
 // === 核心纯函数 ===
 
@@ -954,21 +1048,79 @@ function initGame(isTestMode) {
   gameButtonsEl.style.display = 'flex';
 }
 
+function rebuildOverlayHTML() {
+  overlay.innerHTML = `
+    <h1>🎮 跳跳游戏</h1>
+    <p>按住蓄力，松开跳跃</p>
+    <div class="final-score" id="finalScore" style="display:none"></div>
+    <div class="char-results" id="charResults" style="display:none"></div>
+    <button id="startBtn">经典模式</button>
+    <button id="testModeBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#0f3460;color:#fff;cursor:pointer;margin-top:10px;">测试模式</button>
+    <button id="arenaModeBtn" style="padding:12px 40px;font-size:20px;border:none;border-radius:8px;background:#533483;color:#fff;cursor:pointer;margin-top:10px;">竞技模式</button>
+    <button id="homeBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#555;color:#fff;cursor:pointer;margin-top:10px;display:none;">返回首页</button>
+    <div id="highScoreArea" style="margin-top:16px;text-align:center;">
+      <div id="highScoreDisplay" style="color:#ffd700;font-size:16px;"></div>
+      <button id="clearScoreBtn" style="padding:4px 16px;font-size:12px;border:none;border-radius:6px;background:#555;color:#aaa;cursor:pointer;margin-top:6px;display:none;">清空记录</button>
+    </div>
+    <div id="nameArea" style="margin-top:14px;text-align:center;">
+      <div id="nameEditMode">
+        <input id="nameInput" type="text" maxlength="8" placeholder="输入角色名称" style="padding:6px 12px;font-size:14px;border:none;border-radius:6px;background:rgba(255,255,255,0.12);color:#fff;text-align:center;outline:none;width:140px;">
+        <button id="nameConfirmBtn" style="padding:6px 12px;font-size:13px;border:none;border-radius:6px;background:#e94560;color:#fff;cursor:pointer;margin-left:4px;">确定</button>
+      </div>
+      <div id="nameShowMode" style="display:none;color:#ccc;font-size:14px;">
+        <span id="nameDisplay"></span>
+        <span id="nameEditBtn" style="cursor:pointer;margin-left:4px;opacity:0.5;">✏️</span>
+      </div>
+    </div>
+  `;
+  // 重新绑定事件
+  document.getElementById('startBtn').addEventListener('click', function() {
+    stopHomeBg(); initGame(); overlay.style.display = 'none'; lastTime = 0; requestAnimationFrame(gameLoop);
+  });
+  document.getElementById('testModeBtn').addEventListener('click', function() {
+    stopHomeBg(); initGame(true); overlay.style.display = 'none'; lastTime = 0; requestAnimationFrame(gameLoop);
+  });
+  document.getElementById('arenaModeBtn').addEventListener('click', function() {
+    stopHomeBg(); showArenaLobby();
+  });
+  document.getElementById('homeBtn').addEventListener('click', function() {
+    gameRunning = false; falling = false; jumpAnim = null; slipping = false; fallToBase = null; showOverlay(false);
+  });
+  document.getElementById('clearScoreBtn').addEventListener('click', function() { clearHighScore(); });
+  document.getElementById('nameConfirmBtn').addEventListener('click', function() {
+    const n = document.getElementById('nameInput').value.trim();
+    if (n) { savePlayerName(n); showNameDisplay(n); if (roster && roster.getCurrent()) { roster.getCurrent().name = n; updateStatusBar(); } }
+  });
+  document.getElementById('nameInput').addEventListener('keydown', function(e) { if (e.key === 'Enter') document.getElementById('nameConfirmBtn').click(); });
+  document.getElementById('nameEditBtn').addEventListener('click', function() { showNameEdit(); });
+  // 恢复名称显示
+  const saved = getPlayerName();
+  if (saved) {
+    document.getElementById('nameEditMode').style.display = 'none';
+    document.getElementById('nameShowMode').style.display = '';
+    document.getElementById('nameDisplay').textContent = '👤 ' + saved;
+  }
+}
+
 function showOverlay(isGameOver) {
+  // 重建 overlay HTML（竞技模式可能已替换）
+  rebuildOverlayHTML();
   overlay.style.display = 'flex';
   gameButtonsEl.style.display = 'none';
   const h1 = overlay.querySelector('h1');
   const p = overlay.querySelector('p');
+  const finalScoreEl = document.getElementById('finalScore');
+  const charResultsEl = document.getElementById('charResults');
+  const startBtn = document.getElementById('startBtn');
+  const testModeBtn = document.getElementById('testModeBtn');
+  const homeBtn = document.getElementById('homeBtn');
   if (isGameOver && roster) {
     const totalScore = roster.getTotalScore();
     finalScoreEl.style.display = 'block';
     finalScoreEl.textContent = '总分: ' + totalScore + (testMode ? ' [测试模式]' : '');
-    // 正常模式下保存最高分
     if (!testMode) {
       const isNew = saveHighScore(totalScore);
-      if (isNew) {
-        finalScoreEl.textContent += ' 🎉 新纪录!';
-      }
+      if (isNew) finalScoreEl.textContent += ' 🎉 新纪录!';
     }
     charResultsEl.style.display = 'block';
     charResultsEl.innerHTML = roster.characters.map(c =>
@@ -1007,6 +1159,11 @@ testModeBtn.addEventListener('click', function() {
   overlay.style.display = 'none';
   lastTime = 0;
   requestAnimationFrame(gameLoop);
+});
+
+document.getElementById('arenaModeBtn').addEventListener('click', function() {
+  stopHomeBg();
+  showArenaLobby();
 });
 
 backBtn.addEventListener('click', function() {
@@ -1697,6 +1854,942 @@ function render() {
 
   if (player) player.draw(ox, oy);
 }
+
+// === 竞技模式：NetworkClient ===
+
+class NetworkClient {
+  constructor() {
+    this.ws = null;
+    this.playerId = null;
+    this.handlers = [];
+    this.heartbeatInterval = null;
+    this.reconnectAttempts = 0;
+    this.maxReconnect = 3;
+    this.url = null;
+    this.onDisconnect = null;
+    this.onReconnectFail = null;
+  }
+  connect(url) {
+    this.url = url;
+    return new Promise((resolve, reject) => {
+      try {
+        this.ws = new WebSocket(url);
+        this.ws.onopen = () => { this.reconnectAttempts = 0; resolve(); };
+        this.ws.onmessage = (e) => {
+          try {
+            const msg = JSON.parse(e.data);
+            if (msg.type === 'welcome') this.playerId = msg.playerId;
+            this.handlers.forEach(h => h(msg));
+          } catch(err) {}
+        };
+        this.ws.onclose = () => {
+          this.stopHeartbeat();
+          if (this.onDisconnect) this.onDisconnect();
+          this.tryReconnect();
+        };
+        this.ws.onerror = () => reject(new Error('连接失败'));
+      } catch(e) { reject(e); }
+    });
+  }
+  send(msg) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(msg)); }
+  onMessage(handler) { this.handlers.push(handler); }
+  startHeartbeat() {
+    this.stopHeartbeat();
+    this.heartbeatInterval = setInterval(() => this.send({ type: 'heartbeat' }), 2000);
+  }
+  stopHeartbeat() { if (this.heartbeatInterval) { clearInterval(this.heartbeatInterval); this.heartbeatInterval = null; } }
+  tryReconnect() {
+    if (this.reconnectAttempts >= this.maxReconnect) {
+      if (this.onReconnectFail) this.onReconnectFail();
+      return;
+    }
+    this.reconnectAttempts++;
+    setTimeout(() => {
+      this.connect(this.url).then(() => {
+        this.startHeartbeat();
+      }).catch(() => this.tryReconnect());
+    }, 2000);
+  }
+  disconnect() { this.stopHeartbeat(); if (this.ws) this.ws.close(); }
+}
+
+// === 竞技模式：音效 ===
+
+const ArenaSFX = {
+  diceRoll() { playTone(200, 0.5, 'sine', 0.12, 600); },
+  mystery() { playTone(300, 0.4, 'sine', 0.15, 900); },
+  warning() { playTone(200, 0.3, 'square', 0.2); },
+  lucky() { playTone(523, 0.1, 'sine', 0.15); setTimeout(() => playTone(784, 0.1, 'sine', 0.12), 100); },
+  victory() { playTone(523, 0.15, 'sine', 0.15); setTimeout(() => playTone(659, 0.15, 'sine', 0.12), 150); setTimeout(() => playTone(784, 0.15, 'sine', 0.1), 300); },
+  itemUse() { playTone(660, 0.2, 'sine', 0.15); },
+  turnStart() { playTone(880, 0.15, 'sine', 0.2); }
+};
+
+// === 竞技模式：状态 ===
+
+let arenaMode = false;
+let arenaNet = null;
+let arenaController = null;
+let arenaRacetrack = [];
+let arenaPlayerStates = new Map();
+let arenaLocalPlayerId = null;
+let arenaRoomState = null;
+let arenaCurrentTurnId = null;
+let arenaJumpQuota = 0;
+let arenaDiceValue = 0;
+let arenaRoundNumber = 0;
+let arenaIsMyTurn = false;
+let arenaGhosts = [];
+let arenaEventPopups = [];
+let arenaServerUrl = 'ws://localhost:3000';
+
+// === 竞技模式：房间大厅 UI ===
+
+function showArenaLobby() {
+  const name = getPlayerName();
+  if (!name) { alert('请先输入角色名称'); return; }
+  overlay.innerHTML = `
+    <h1 style="font-size:32px">🏟️ 竞技模式</h1>
+    <p style="color:#aaa;margin-bottom:15px">回合制多人赛跑对战</p>
+    <div style="margin-bottom:10px">
+      <label style="color:#ccc;font-size:13px">服务器地址：</label>
+      <input id="arenaUrlInput" type="text" value="${arenaServerUrl}" style="padding:5px 10px;font-size:13px;border:none;border-radius:6px;background:rgba(255,255,255,0.12);color:#fff;width:220px;outline:none;">
+    </div>
+    <button id="arenaCreateBtn" style="padding:10px 30px;font-size:18px;border:none;border-radius:8px;background:#533483;color:#fff;cursor:pointer;margin:6px;">创建房间</button>
+    <div style="margin-top:10px;display:flex;align-items:center;gap:6px;">
+      <input id="arenaCodeInput" type="text" maxlength="4" placeholder="房间码" style="padding:8px 12px;font-size:16px;border:none;border-radius:6px;background:rgba(255,255,255,0.12);color:#fff;text-align:center;outline:none;width:100px;text-transform:uppercase;">
+      <button id="arenaJoinBtn" style="padding:8px 20px;font-size:16px;border:none;border-radius:8px;background:#0f3460;color:#fff;cursor:pointer;">加入房间</button>
+    </div>
+    <button id="arenaBackBtn" style="padding:6px 20px;font-size:14px;border:none;border-radius:6px;background:#555;color:#fff;cursor:pointer;margin-top:15px;">返回首页</button>
+    <div id="arenaStatus" style="color:#ff6b6b;margin-top:10px;font-size:13px;"></div>
+  `;
+  document.getElementById('arenaBackBtn').onclick = () => { showOverlay(false); };
+  document.getElementById('arenaCreateBtn').onclick = () => arenaConnect('create');
+  document.getElementById('arenaJoinBtn').onclick = () => arenaConnect('join');
+}
+
+async function arenaConnect(action) {
+  const urlInput = document.getElementById('arenaUrlInput');
+  const statusEl = document.getElementById('arenaStatus');
+  arenaServerUrl = urlInput.value.trim();
+  statusEl.textContent = '连接中...';
+
+  arenaNet = new NetworkClient();
+  try {
+    await arenaNet.connect(arenaServerUrl);
+  } catch(e) {
+    statusEl.textContent = '连接失败，请检查服务器地址';
+    return;
+  }
+  arenaNet.startHeartbeat();
+  arenaLocalPlayerId = arenaNet.playerId;
+
+  arenaNet.onMessage((msg) => handleArenaMessage(msg));
+  arenaNet.onDisconnect = () => { if (arenaMode) showArenaDisconnect(); };
+  arenaNet.onReconnectFail = () => { if (arenaMode) showArenaReconnectFail(); };
+
+  const name = getPlayerName() || '玩家';
+  if (action === 'create') {
+    arenaNet.send({ type: 'create_room', playerName: name });
+  } else {
+    const code = document.getElementById('arenaCodeInput').value.trim().toUpperCase();
+    if (!code || code.length !== 4) { statusEl.textContent = '请输入4位房间码'; return; }
+    arenaNet.send({ type: 'join_room', roomCode: code, playerName: name });
+  }
+}
+
+function showArenaRoom(roomState) {
+  arenaRoomState = roomState;
+  const isHost = roomState.hostId === arenaLocalPlayerId;
+  overlay.innerHTML = `
+    <h1 style="font-size:28px">🏟️ 房间</h1>
+    <div style="font-size:36px;color:#ffd700;letter-spacing:8px;margin:10px 0;cursor:pointer;" id="arenaRoomCode" title="点击复制">${roomState.code}</div>
+    <p style="color:#aaa;font-size:12px;margin-bottom:10px;">点击房间码复制，分享给朋友</p>
+    <div id="arenaPlayerList" style="margin:10px 0;"></div>
+    ${isHost ? '<button id="arenaStartBtn" style="padding:10px 30px;font-size:18px;border:none;border-radius:8px;background:#e94560;color:#fff;cursor:pointer;margin:6px;">开始游戏</button>' : '<p style="color:#aaa;">等待房主开始游戏...</p>'}
+    <button id="arenaLeaveBtn" style="padding:6px 20px;font-size:14px;border:none;border-radius:6px;background:#555;color:#fff;cursor:pointer;margin-top:10px;">离开房间</button>
+    <div id="arenaStatus" style="color:#ff6b6b;margin-top:8px;font-size:13px;"></div>
+  `;
+  document.getElementById('arenaRoomCode').onclick = () => {
+    navigator.clipboard.writeText(roomState.code).catch(() => {});
+  };
+  if (isHost) {
+    document.getElementById('arenaStartBtn').onclick = () => arenaNet.send({ type: 'start_game' });
+  }
+  document.getElementById('arenaLeaveBtn').onclick = () => {
+    arenaNet.disconnect();
+    arenaMode = false;
+    showOverlay(false);
+  };
+  updateArenaPlayerList(roomState.players);
+}
+
+function updateArenaPlayerList(players) {
+  const el = document.getElementById('arenaPlayerList');
+  if (!el) return;
+  el.innerHTML = players.map(p =>
+    `<div style="color:${p.color};font-size:15px;margin:3px 0;">${p.name} ${p.id === arenaRoomState.hostId ? '👑' : ''} ${!p.connected ? '(离线)' : ''}</div>`
+  ).join('');
+}
+
+function showArenaDisconnect() {
+  const el = document.getElementById('arenaStatus');
+  if (el) el.textContent = '连接中断，正在重连...';
+}
+
+function showArenaReconnectFail() {
+  overlay.style.display = 'flex';
+  overlay.innerHTML = `
+    <h1 style="font-size:28px">😢 连接失败</h1>
+    <p style="color:#aaa;">无法重新连接到服务器</p>
+    <button onclick="arenaMode=false;showOverlay(false);" style="padding:10px 30px;font-size:16px;border:none;border-radius:8px;background:#555;color:#fff;cursor:pointer;margin-top:10px;">返回首页</button>
+  `;
+}
+
+// === 竞技模式：消息处理 ===
+
+function handleArenaMessage(msg) {
+  switch (msg.type) {
+    case 'room_created':
+    case 'room_joined':
+      arenaMode = true;
+      showArenaRoom(msg.room || msg);
+      break;
+    case 'room_error':
+      const s = document.getElementById('arenaStatus');
+      if (s) s.textContent = msg.message;
+      break;
+    case 'player_list_update':
+      if (arenaRoomState) {
+        arenaRoomState.players = msg.players;
+        updateArenaPlayerList(msg.players);
+      }
+      break;
+    case 'host_changed':
+      if (arenaRoomState) {
+        arenaRoomState.hostId = msg.newHostId;
+        showArenaRoom(arenaRoomState);
+      }
+      break;
+    case 'game_start':
+      arenaStartGame(msg.seed, msg.turnOrder);
+      break;
+    case 'turn_start':
+      if (msg.roundNumber) arenaRoundNumber = msg.roundNumber;
+      arenaOnTurnStart(msg.playerId);
+      break;
+    case 'dice_result':
+      arenaOnDiceResult(msg.playerId, msg.value, msg.modifier);
+      break;
+    case 'jump_broadcast':
+      if (msg.playerId !== arenaLocalPlayerId) arenaOnGhostJump(msg.playerId, msg.platformIndex, msg.chargePower);
+      break;
+    case 'land_result':
+      arenaOnLandResult(msg.playerId, msg.success, msg.newIndex, msg.quotaLeft);
+      break;
+    case 'turn_end':
+      break;
+    case 'skip_turn':
+      arenaShowPopup(arenaGetPlayerName(msg.playerId) + ' 被暂停！剩余 ' + msg.remainingSkips + ' 回合', '#ff6b6b');
+      break;
+    case 'mystery_result':
+      arenaOnMysteryResult(msg);
+      break;
+    case 'event_effect':
+      arenaOnEventEffect(msg.event, msg.affectedPlayers);
+      break;
+    case 'item_used':
+      arenaOnItemUsed(msg);
+      break;
+    case 'game_end':
+      arenaOnGameEnd(msg.winnerId, msg.rankings);
+      break;
+    case 'room_snapshot':
+      arenaRoomState = msg.room;
+      break;
+    case 'error':
+      const se = document.getElementById('arenaStatus');
+      if (se) se.textContent = msg.message;
+      break;
+  }
+}
+
+function arenaGetPlayerName(playerId) {
+  if (!arenaRoomState) return '玩家';
+  const p = arenaRoomState.players.find(x => x.id === playerId);
+  return p ? p.name : '玩家';
+}
+
+function arenaGetPlayerColor(playerId) {
+  if (!arenaRoomState) return '#fff';
+  const p = arenaRoomState.players.find(x => x.id === playerId);
+  return p ? p.color : '#fff';
+}
+
+// === 竞技模式：游戏控制器 ===
+
+function arenaStartGame(seed, turnOrder) {
+  arenaRacetrack = generateRacetrack(seed);
+  arenaRoomState.turnOrder = turnOrder;
+  arenaRoundNumber = 1;
+  arenaPlayerStates.clear();
+  arenaGhosts = [];
+
+  for (const pid of turnOrder) {
+    arenaPlayerStates.set(pid, {
+      platformIndex: 1,
+      items: [],
+      skipTurns: 0,
+      hasShield: false,
+      totalJumps: 0,
+      successfulJumps: 0,
+      eventsTriggered: 0,
+      activeEffects: [],
+      autoLandRemaining: 0
+    });
+  }
+
+  // 初始化游戏引擎
+  platforms = arenaRacetrack;
+  const tc = platforms[0].getTopCenter();
+  player = new Player(tc.x, tc.y);
+  player.onPlatform = 0;
+  cameraX = tc.x - W / 2;
+  cameraY = tc.y - H / 2 + 80;
+  targetCamX = cameraX;
+  targetCamY = cameraY;
+  gameRunning = true;
+  arenaMode = true;
+  charging = false;
+  jumpAnim = null;
+  falling = false;
+  slipping = false;
+  fallToBase = null;
+  particles = [];
+
+  overlay.style.display = 'none';
+  gameButtonsEl.style.display = 'none';
+  lastTime = 0;
+  requestAnimationFrame(arenaGameLoop);
+}
+
+function arenaOnTurnStart(playerId) {
+  arenaCurrentTurnId = playerId;
+  arenaIsMyTurn = (playerId === arenaLocalPlayerId);
+  if (arenaIsMyTurn) {
+    ArenaSFX.turnStart();
+    arenaNet.send({ type: 'roll_dice' });
+  }
+  // 镜头移到当前玩家
+  const state = arenaPlayerStates.get(playerId);
+  if (state && arenaRacetrack[state.platformIndex - 1]) {
+    const tc = arenaRacetrack[state.platformIndex - 1].getTopCenter();
+    targetCamX = tc.x - W / 2;
+    targetCamY = tc.y - H / 2 + 80;
+  }
+  arenaShowPopup(arenaGetPlayerName(playerId) + ' 的回合', arenaGetPlayerColor(playerId));
+}
+
+function arenaOnDiceResult(playerId, value, modifier) {
+  ArenaSFX.diceRoll();
+  arenaDiceValue = value;
+  arenaJumpQuota = value;
+  arenaShowPopup('🎲 ' + value, '#ffd700');
+  if (arenaIsMyTurn) {
+    // 将玩家放到当前平台
+    const state = arenaPlayerStates.get(arenaLocalPlayerId);
+    if (state) {
+      const platIdx = state.platformIndex - 1;
+      if (arenaRacetrack[platIdx]) {
+        const tc = arenaRacetrack[platIdx].getTopCenter();
+        player.x = tc.x;
+        player.y = tc.y;
+        player.onPlatform = platIdx;
+        targetCamX = tc.x - W / 2;
+        targetCamY = tc.y - H / 2 + 80;
+      }
+    }
+  }
+}
+
+function arenaOnLandResult(playerId, success, newIndex, quotaLeft) {
+  const state = arenaPlayerStates.get(playerId);
+  if (state) {
+    state.platformIndex = newIndex;
+    state.totalJumps++;
+    if (success) state.successfulJumps++;
+  }
+  arenaJumpQuota = quotaLeft;
+
+  if (playerId === arenaLocalPlayerId && success) {
+    // 检查是否是 Mystery_Platform
+    const plat = arenaRacetrack[newIndex - 1];
+    if (plat && plat.isMystery) {
+      arenaNet.send({ type: 'trigger_mystery', platformIndex: newIndex });
+    }
+  }
+}
+
+function arenaOnGhostJump(playerId, platformIndex, chargePower) {
+  const state = arenaPlayerStates.get(playerId);
+  if (!state) return;
+  const fromIdx = state.platformIndex - 1;
+  const toIdx = fromIdx + 1;
+  if (fromIdx < 0 || toIdx >= arenaRacetrack.length) return;
+  const from = arenaRacetrack[fromIdx].getTopCenter();
+  const to = arenaRacetrack[toIdx].getTopCenter();
+  arenaGhosts.push({
+    playerId, color: arenaGetPlayerColor(playerId), name: arenaGetPlayerName(playerId),
+    startX: from.x, startY: from.y, targetX: to.x, targetY: to.y,
+    progress: 0, duration: 600, height: 40 + chargePower * 110
+  });
+}
+
+function arenaOnMysteryResult(msg) {
+  ArenaSFX.mystery();
+  if (msg.resultType === 'event' && msg.event) {
+    arenaShowPopup(msg.event.name, msg.event.category === 'lucky' ? '#06d6a0' : '#ff6b6b');
+  } else if (msg.resultType === 'item' && msg.item) {
+    arenaShowPopup('获得道具: ' + arenaItemName(msg.item), '#ffd700');
+    const state = arenaPlayerStates.get(msg.playerId);
+    if (state && state.items.length < 2) state.items.push(msg.item);
+  } else if (msg.resultType === 'shielded') {
+    arenaShowPopup('护盾抵消了 ' + msg.event.name, '#00b4d8');
+  }
+}
+
+function arenaOnEventEffect(event, affectedPlayers) {
+  if (!affectedPlayers) return;
+  for (const eff of affectedPlayers) {
+    if (eff.playerId === arenaLocalPlayerId) {
+      if (event.category === 'disaster' || event.category === 'penalty') {
+        ArenaSFX.warning();
+      } else {
+        ArenaSFX.lucky();
+      }
+    }
+    const state = arenaPlayerStates.get(eff.playerId);
+    if (state && eff.newIndex !== undefined) state.platformIndex = eff.newIndex;
+    if (state && eff.skipTurns !== undefined) state.skipTurns = eff.skipTurns;
+  }
+}
+
+function arenaOnItemUsed(msg) {
+  ArenaSFX.itemUse();
+  arenaShowPopup(arenaGetPlayerName(msg.playerId) + ' 使用了 ' + arenaItemName(msg.itemType), '#ffd700');
+  const state = arenaPlayerStates.get(msg.playerId);
+  if (state) {
+    const idx = state.items.indexOf(msg.itemType);
+    if (idx !== -1) state.items.splice(idx, 1);
+    if (msg.effect) {
+      if (msg.effect.type === 'auto_land') state.autoLandRemaining = arenaJumpQuota;
+      if (msg.effect.type === 'shield') state.hasShield = true;
+    }
+  }
+  if (msg.effect && msg.effect.newQuota !== undefined) arenaJumpQuota = msg.effect.newQuota;
+  // 退后卡/冻结卡效果更新
+  if (msg.effect && msg.effect.targetId) {
+    const targetState = arenaPlayerStates.get(msg.effect.targetId);
+    if (targetState) {
+      if (msg.effect.newIndex !== undefined) targetState.platformIndex = msg.effect.newIndex;
+      if (msg.effect.type === 'freeze') targetState.skipTurns = Math.max(targetState.skipTurns, 1);
+    }
+  }
+}
+
+function arenaOnGameEnd(winnerId, rankings) {
+  gameRunning = false;
+  arenaMode = false;
+  if (winnerId === arenaLocalPlayerId) ArenaSFX.victory();
+  arenaShowRankScreen(rankings);
+}
+
+function arenaItemName(type) {
+  const names = { auto_land: '必中卡', pushback: '退后卡', freeze: '暂停卡', shield: '护盾卡', speed_boost: '加速卡' };
+  return names[type] || type;
+}
+
+// === 竞技模式：弹出提示 ===
+
+function arenaShowPopup(text, color) {
+  arenaEventPopups.push({ text, color: color || '#fff', alpha: 1, y: H / 2 - 50 });
+}
+
+// === 竞技模式：排名界面 ===
+
+function arenaShowRankScreen(rankings) {
+  overlay.style.display = 'flex';
+  let html = '<h1 style="font-size:28px">🏆 对局结束</h1>';
+  for (const r of rankings) {
+    const crown = r.isWinner ? '👑 ' : '';
+    const color = arenaGetPlayerColor(r.playerId);
+    html += `<div style="color:${color};font-size:16px;margin:4px 0;">${crown}#${r.rank} ${r.playerName} - 第${r.platformIndex}格 | 跳跃${r.totalJumps}次 成功率${r.successRate}%</div>`;
+  }
+  html += `
+    <button id="arenaAgainBtn" style="padding:10px 30px;font-size:16px;border:none;border-radius:8px;background:#533483;color:#fff;cursor:pointer;margin-top:15px;">再来一局</button>
+    <button id="arenaHomeBtn" style="padding:8px 20px;font-size:14px;border:none;border-radius:6px;background:#555;color:#fff;cursor:pointer;margin-top:8px;">返回首页</button>
+  `;
+  overlay.innerHTML = html;
+  document.getElementById('arenaAgainBtn').onclick = () => {
+    if (arenaRoomState) showArenaRoom(arenaRoomState);
+  };
+  document.getElementById('arenaHomeBtn').onclick = () => {
+    if (arenaNet) arenaNet.disconnect();
+    arenaMode = false;
+    showOverlay(false);
+  };
+}
+
+// === 竞技模式：跳跃处理 ===
+
+function arenaStartCharge() {
+  if (!arenaIsMyTurn || arenaJumpQuota <= 0 || jumpAnim || charging || falling || slipping || fallToBase) return;
+  charging = true;
+  chargeStart = Date.now();
+}
+
+function arenaReleaseCharge() {
+  if (!charging || !arenaIsMyTurn) return;
+  const chargeTime = Date.now() - chargeStart;
+  const power = calculatePower(chargeTime, maxCharge);
+  charging = false;
+  chargePower = 0;
+  player.squash = 0;
+  powerFill.style.width = '0%';
+
+  const state = arenaPlayerStates.get(arenaLocalPlayerId);
+  if (!state) return;
+  const currentIdx = state.platformIndex - 1;
+  const nextIdx = currentIdx + 1;
+  if (nextIdx >= arenaRacetrack.length) return;
+
+  // 发送跳跃消息
+  arenaNet.send({ type: 'jump', platformIndex: currentIdx, chargePower: power });
+
+  SFX.jump();
+  const dist = calculateJumpDistance(power, MIN_JUMP, MAX_JUMP);
+  const distRatio = (dist - MIN_JUMP) / (MAX_JUMP - MIN_JUMP);
+  const jumpH = MIN_JUMP_HEIGHT + distRatio * (MAX_JUMP_HEIGHT - MIN_JUMP_HEIGHT);
+  const jumpDur = 300 + distRatio * (JUMP_DURATION - 300);
+
+  const nextPlat = arenaRacetrack[nextIdx];
+  const nextCenter = nextPlat.getTopCenter();
+  let aimX = nextCenter.x, aimY = nextCenter.y;
+  if (nextPlat.moving) {
+    const moveDir = Math.cos(nextPlat.movePhase);
+    aimX += moveDir * nextPlat.moveRange * 0.35;
+  }
+  const dx = aimX - player.x;
+  const dy = aimY - player.y;
+  const dirLen = Math.sqrt(dx * dx + dy * dy);
+  const nx = dirLen > 0 ? dx / dirLen : 0;
+  const ny = dirLen > 0 ? dy / dirLen : -1;
+
+  jumpAnim = {
+    startX: player.x, startY: player.y,
+    targetX: player.x + nx * dist, targetY: player.y + ny * dist,
+    progress: 0, duration: jumpDur, height: jumpH,
+    dirSign: dx >= 0 ? 1 : -1, power: power,
+    arenaTargetIdx: nextIdx
+  };
+}
+
+function arenaHandleLanding() {
+  if (!jumpAnim || !jumpAnim.arenaTargetIdx) return;
+  const targetPlat = arenaRacetrack[jumpAnim.arenaTargetIdx];
+  const success = targetPlat && !targetPlat.collapsed && targetPlat.hitTest(player.x, player.y);
+
+  if (success) {
+    SFX.land();
+    const tc = targetPlat.getTopCenter();
+    player.x = tc.x;
+    player.y = tc.y;
+    player.onPlatform = jumpAnim.arenaTargetIdx;
+    spawnParticles(player.x, player.y, false);
+    targetCamX = player.x - W / 2;
+    targetCamY = player.y - H / 2 + 80;
+  } else {
+    SFX.hurt();
+    // 回到原平台
+    const state = arenaPlayerStates.get(arenaLocalPlayerId);
+    if (state) {
+      const origPlat = arenaRacetrack[state.platformIndex - 1];
+      if (origPlat) {
+        const tc = origPlat.getTopCenter();
+        player.x = tc.x;
+        player.y = tc.y;
+        player.onPlatform = state.platformIndex - 1;
+      }
+    }
+  }
+
+  arenaNet.send({ type: 'land', success, targetIndex: jumpAnim.arenaTargetIdx + 1 });
+  jumpAnim = null;
+  player.rotation = 0;
+}
+
+// === 竞技模式：道具使用 ===
+
+function arenaUseItem(itemType) {
+  if (!arenaIsMyTurn || charging || jumpAnim) return;
+  const state = arenaPlayerStates.get(arenaLocalPlayerId);
+  if (!state || !state.items.includes(itemType)) return;
+
+  if (itemType === 'pushback' || itemType === 'freeze') {
+    arenaShowTargetSelect(itemType);
+  } else {
+    arenaNet.send({ type: 'use_item', itemType });
+  }
+}
+
+function arenaShowTargetSelect(itemType) {
+  const opponents = arenaRoomState.players.filter(p => p.id !== arenaLocalPlayerId);
+  let html = '<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;" id="arenaTargetPanel">';
+  html += '<div style="color:#fff;font-size:18px;margin-bottom:10px;">选择目标</div>';
+  for (const p of opponents) {
+    html += `<button onclick="arenaSelectTarget('${itemType}','${p.id}')" style="padding:8px 20px;font-size:15px;border:none;border-radius:6px;background:${p.color};color:#fff;cursor:pointer;margin:4px;">${p.name}</button>`;
+  }
+  html += `<button onclick="document.getElementById('arenaTargetPanel').remove()" style="padding:6px 16px;font-size:13px;border:none;border-radius:6px;background:#555;color:#fff;cursor:pointer;margin-top:10px;">取消</button>`;
+  html += '</div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function arenaSelectTarget(itemType, targetId) {
+  const panel = document.getElementById('arenaTargetPanel');
+  if (panel) panel.remove();
+  arenaNet.send({ type: 'use_item', itemType, targetId });
+}
+
+// === 竞技模式：HUD 渲染 ===
+
+function arenaRenderHUD() {
+  if (!arenaMode || !arenaRoomState) return;
+
+  // 赛道进度条
+  const barY = 10, barH = 16, barX = 50, barW = W - 100;
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(barX, barY, barW, barH);
+  const cellW = barW / 20;
+  for (let i = 0; i < 20; i++) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.strokeRect(barX + i * cellW, barY, cellW, barH);
+    // Mystery 标记
+    if (arenaRacetrack[i] && arenaRacetrack[i].isMystery) {
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.font = '8px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('?', barX + i * cellW + cellW / 2, barY + barH - 3);
+    }
+  }
+  // 玩家位置标记
+  for (const [pid, state] of arenaPlayerStates) {
+    const color = arenaGetPlayerColor(pid);
+    const px = barX + (state.platformIndex - 1) * cellW + cellW / 2;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(px, barY + barH / 2, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 当前回合信息
+  ctx.fillStyle = arenaGetPlayerColor(arenaCurrentTurnId);
+  ctx.font = 'bold 13px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(arenaGetPlayerName(arenaCurrentTurnId) + ' 的回合', barX, barY + barH + 16);
+
+  // 骰子与跳跃次数
+  ctx.fillStyle = '#fff';
+  ctx.font = '13px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('🎲 ' + arenaDiceValue + ' | 剩余跳跃：' + arenaJumpQuota, W - 10, barY + barH + 16);
+
+  // 回合计数
+  ctx.fillStyle = '#aaa';
+  ctx.font = '12px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('第 ' + arenaRoundNumber + ' 回合', 10, barY + barH + 35);
+
+  // 道具栏
+  const localState = arenaPlayerStates.get(arenaLocalPlayerId);
+  if (localState) {
+    const itemY = H - 50;
+    for (let i = 0; i < 2; i++) {
+      const ix = W - 90 + i * 42;
+      if (localState.items[i]) {
+        ctx.fillStyle = 'rgba(255,215,0,0.3)';
+        ctx.fillRect(ix, itemY, 38, 38);
+        ctx.fillStyle = '#fff';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(arenaItemName(localState.items[i]), ix + 19, itemY + 24);
+      } else {
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(ix, itemY, 38, 38);
+        ctx.setLineDash([]);
+      }
+    }
+  }
+
+  // 弹出提示
+  for (let i = arenaEventPopups.length - 1; i >= 0; i--) {
+    const pop = arenaEventPopups[i];
+    pop.alpha -= 0.008;
+    pop.y -= 0.5;
+    if (pop.alpha <= 0) { arenaEventPopups.splice(i, 1); continue; }
+    ctx.globalAlpha = pop.alpha;
+    ctx.fillStyle = pop.color;
+    ctx.font = 'bold 20px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(pop.text, W / 2, pop.y);
+    ctx.globalAlpha = 1;
+  }
+
+  // 玩家状态卡片
+  const cardY = barY + barH + 25;
+  let cardX = barX;
+  for (const [pid, state] of arenaPlayerStates) {
+    const color = arenaGetPlayerColor(pid);
+    const name = arenaGetPlayerName(pid);
+    ctx.fillStyle = pid === arenaCurrentTurnId ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)';
+    ctx.fillRect(cardX, cardY, 80, 28);
+    ctx.fillStyle = color;
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(name, cardX + 3, cardY + 12);
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('第' + state.platformIndex + '格', cardX + 3, cardY + 24);
+    if (state.skipTurns > 0) {
+      ctx.fillStyle = '#ff6b6b';
+      ctx.fillText('🔒' + state.skipTurns, cardX + 55, cardY + 12);
+    }
+    cardX += 85;
+  }
+}
+
+// === 竞技模式：Ghost 渲染 ===
+
+function arenaRenderGhosts(ox, oy) {
+  // 渲染所有玩家位置标记
+  for (const [pid, state] of arenaPlayerStates) {
+    if (pid === arenaLocalPlayerId) continue;
+    const platIdx = state.platformIndex - 1;
+    if (platIdx < 0 || platIdx >= arenaRacetrack.length) continue;
+    const tc = arenaRacetrack[platIdx].getTopCenter();
+    const gx = tc.x - ox, gy = tc.y - oy;
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = arenaGetPlayerColor(pid);
+    ctx.beginPath();
+    ctx.roundRect(gx - 10, gy - 40, 20, 40, [10, 10, 4, 4]);
+    ctx.fill();
+    // 状态效果
+    arenaDrawStatusEffects(gx, gy, state);
+    ctx.fillStyle = '#fff';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(arenaGetPlayerName(pid), gx, gy - 45);
+    ctx.globalAlpha = 1;
+  }
+
+  // 本地玩家状态效果
+  if (player && arenaLocalPlayerId) {
+    const localState = arenaPlayerStates.get(arenaLocalPlayerId);
+    if (localState) {
+      const px = player.x - ox, py = player.y - oy;
+      arenaDrawStatusEffects(px, py, localState);
+    }
+  }
+
+  // Ghost 跳跃动画
+  for (let i = arenaGhosts.length - 1; i >= 0; i--) {
+    const g = arenaGhosts[i];
+    g.progress += 16 / g.duration;
+    if (g.progress >= 1) { arenaGhosts.splice(i, 1); continue; }
+    const t = g.progress;
+    const gx = g.startX + (g.targetX - g.startX) * t - ox;
+    const gy = calculateParabola(t, g.startY, g.targetY, g.height) - oy;
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = g.color;
+    ctx.beginPath();
+    ctx.roundRect(gx - 10, gy - 40, 20, 40, [10, 10, 4, 4]);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+// 绘制玩家状态效果（监狱、护盾、冻结等）
+function arenaDrawStatusEffects(px, py, state) {
+  // 监狱效果：铁栏杆
+  if (state.skipTurns > 0) {
+    ctx.strokeStyle = 'rgba(150,150,150,0.7)';
+    ctx.lineWidth = 2;
+    for (let b = -8; b <= 8; b += 8) {
+      ctx.beginPath();
+      ctx.moveTo(px + b, py - 48);
+      ctx.lineTo(px + b, py + 2);
+      ctx.stroke();
+    }
+    // 横杆
+    ctx.beginPath();
+    ctx.moveTo(px - 12, py - 30);
+    ctx.lineTo(px + 12, py - 30);
+    ctx.moveTo(px - 12, py - 15);
+    ctx.lineTo(px + 12, py - 15);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+  // 护盾效果：金色光环
+  if (state.hasShield) {
+    const pulse = 0.6 + 0.4 * Math.sin(Date.now() / 400);
+    ctx.strokeStyle = `rgba(255,215,0,${pulse})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(px, py - 20, 16, 24, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+  // 必中卡效果：脚下金色光环
+  if (state.autoLandRemaining > 0) {
+    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 300);
+    ctx.fillStyle = `rgba(255,215,0,${pulse * 0.4})`;
+    ctx.beginPath();
+    ctx.ellipse(px, py, 14, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// === 竞技模式：Mystery_Platform 视觉 ===
+
+function arenaRenderMysteryMarks(ox, oy) {
+  for (const plat of arenaRacetrack) {
+    if (!plat.isMystery || plat.collapsed) continue;
+    const tc = plat.getTopCenter();
+    const mx = tc.x - ox, my = tc.y - oy;
+    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 750 * Math.PI);
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 18px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('?', mx, my + 6);
+    ctx.globalAlpha = 1;
+  }
+}
+
+// === 竞技模式：游戏循环 ===
+
+function arenaGameLoop(timestamp) {
+  if (lastTime === 0) lastTime = timestamp;
+  const dt = timestamp - lastTime;
+  lastTime = timestamp;
+
+  arenaUpdate(dt);
+  arenaRender();
+
+  if (arenaMode || jumpAnim) {
+    requestAnimationFrame(arenaGameLoop);
+  }
+}
+
+function arenaUpdate(dt) {
+  for (const p of arenaRacetrack) p.update(dt);
+
+  if (charging && player && arenaIsMyTurn) {
+    chargePower = calculatePower(Date.now() - chargeStart, maxCharge);
+    player.squash = chargePower;
+    powerFill.style.width = (chargePower * 100) + '%';
+  }
+
+  if (jumpAnim) {
+    jumpAnim.progress += dt / jumpAnim.duration;
+    if (jumpAnim.power >= 0.25) {
+      player.rotation = jumpAnim.progress * Math.PI * 2 * jumpAnim.dirSign;
+    }
+    if (jumpAnim.progress >= 1) {
+      jumpAnim.progress = 1;
+      player.x = jumpAnim.targetX;
+      player.y = jumpAnim.targetY;
+      player.rotation = 0;
+      arenaHandleLanding();
+    } else {
+      const t = jumpAnim.progress;
+      player.x = jumpAnim.startX + (jumpAnim.targetX - jumpAnim.startX) * t;
+      player.y = calculateParabola(t, jumpAnim.startY, jumpAnim.targetY, jumpAnim.height);
+    }
+  }
+
+  // 跟随移动平台
+  if (!jumpAnim && !charging && player && arenaMode) {
+    const curPlat = arenaRacetrack[player.onPlatform];
+    if (curPlat && curPlat.moving && curPlat.moveDeltaX) {
+      player.x += curPlat.moveDeltaX;
+    }
+  }
+
+  if (player && player.bounce > 0) {
+    player.bounce -= dt * 0.004;
+    if (player.bounce < 0) player.bounce = 0;
+  }
+
+  updateParticles(dt);
+  updateCamera(dt);
+}
+
+function arenaRender() {
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, W, H);
+  const ox = cameraX + shakeX, oy = cameraY + shakeY;
+
+  const sorted = [...arenaRacetrack].sort((a, b) => a.y - b.y);
+  for (const p of sorted) p.draw(ox, oy);
+
+  arenaRenderMysteryMarks(ox, oy);
+  arenaRenderGhosts(ox, oy);
+
+  for (const p of particles) {
+    ctx.globalAlpha = Math.max(0, p.alpha);
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x - ox, p.y - oy, p.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  if (player) player.draw(ox, oy);
+
+  arenaRenderHUD();
+}
+
+// === 竞技模式：输入绑定 ===
+
+const origStartCharge = startCharge;
+const origReleaseCharge = releaseCharge;
+
+startCharge = function() {
+  if (arenaMode) { arenaStartCharge(); return; }
+  origStartCharge();
+};
+
+releaseCharge = function() {
+  if (arenaMode) { arenaReleaseCharge(); return; }
+  origReleaseCharge();
+};
+
+// === 竞技模式：道具栏点击 ===
+
+canvas.addEventListener('click', (e) => {
+  if (!arenaMode || !arenaIsMyTurn) return;
+  const rect = canvas.getBoundingClientRect();
+  const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+  const localState = arenaPlayerStates.get(arenaLocalPlayerId);
+  if (!localState) return;
+  const itemY = H - 50;
+  for (let i = 0; i < 2; i++) {
+    const ix = W - 90 + i * 42;
+    if (cx >= ix && cx <= ix + 38 && cy >= itemY && cy <= itemY + 38) {
+      if (localState.items[i]) arenaUseItem(localState.items[i]);
+    }
+  }
+});
 
 </script>
 </body>

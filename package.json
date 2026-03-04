@@ -1,0 +1,25 @@
+{
+  "name": "project",
+  "version": "1.0.0",
+  "description": "jump游戏",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YiXia-sys/jump_game.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/YiXia-sys/jump_game/issues"
+  },
+  "homepage": "https://github.com/YiXia-sys/jump_game#readme",
+  "dependencies": {
+    "ws": "^8.19.0"
+  }
+}
