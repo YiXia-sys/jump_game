@@ -249,6 +249,7 @@ function updateHighScoreDisplay() {
 // === 角色名称管理 ===
 const PLAYER_NAME_KEY = 'jumpGame_playerName';
 const LOGGED_IN_KEY = 'jumpGame_loggedInUser';
+const AUTH_TOKEN_KEY = 'jumpGame_authToken';
 
 function getPlayerName() {
   return getLoggedInUser() || localStorage.getItem(PLAYER_NAME_KEY) || '';
@@ -262,17 +263,44 @@ function getLoggedInUser() {
   return localStorage.getItem(LOGGED_IN_KEY) || '';
 }
 
-function setLoggedInUser(username) {
+function getAuthToken() {
+  return localStorage.getItem(AUTH_TOKEN_KEY) || '';
+}
+
+function setLoggedInUser(username, token) {
   localStorage.setItem(LOGGED_IN_KEY, username);
+  localStorage.setItem(AUTH_TOKEN_KEY, token);
   savePlayerName(username);
 }
 
 function logoutUser() {
   localStorage.removeItem(LOGGED_IN_KEY);
+  localStorage.removeItem(AUTH_TOKEN_KEY);
 }
 
 function getApiBase() {
   return window.location.origin || 'http://localhost:3000';
+}
+
+// 页面加载时验证 token
+async function verifyAuth() {
+  const username = getLoggedInUser();
+  const token = getAuthToken();
+  if (!username || !token) return;
+  try {
+    const resp = await fetch(getApiBase() + '/api/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, token })
+    });
+    const data = await resp.json();
+    if (!data.ok) {
+      // token 过期，清除登录状态
+      logoutUser();
+    }
+  } catch(e) {
+    // 网络错误不清除，下次再验证
+  }
 }
 
 async function doAuth(action) {
@@ -293,7 +321,7 @@ async function doAuth(action) {
     });
     const data = await resp.json();
     if (data.ok) {
-      setLoggedInUser(data.username);
+      setLoggedInUser(data.username, data.token);
       showOverlay(false);
     } else {
       if (msgEl) msgEl.textContent = data.error || '操作失败';
@@ -305,12 +333,13 @@ async function doAuth(action) {
 
 async function submitScore(mode, score, platformIndex, rank) {
   const username = getLoggedInUser();
-  if (!username) return;
+  const token = getAuthToken();
+  if (!username || !token) return;
   try {
     await fetch(getApiBase() + '/api/score', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, mode, score, platformIndex, rank })
+      body: JSON.stringify({ username, token, mode, score, platformIndex, rank })
     });
   } catch(e) {}
 }
@@ -1412,6 +1441,7 @@ function stopHomeBg() {
 
 // 页面加载时显示最高分和启动首页背景
 updateHighScoreDisplay();
+verifyAuth();
 startHomeBg();
 
 // === 蓄力系统 ===

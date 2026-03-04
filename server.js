@@ -47,6 +47,15 @@ function hashPassword(password) {
   return crypto.createHash('sha256').update(password + 'jump_game_salt').digest('hex');
 }
 
+function generateToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+function verifyToken(username, token) {
+  if (!username || !token || !usersData[username]) return false;
+  return usersData[username].token === token;
+}
+
 // === HTTP 服务 + API ===
 
 const httpServer = http.createServer((req, res) => {
@@ -68,9 +77,10 @@ const httpServer = http.createServer((req, res) => {
         if (name.length < 1) { jsonRes(res, 400, { error: '用户名至少1个字符' }); return; }
         if (password.length < 3) { jsonRes(res, 400, { error: '密码至少3个字符' }); return; }
         if (usersData[name]) { jsonRes(res, 400, { error: '用户名已存在' }); return; }
-        usersData[name] = { password: hashPassword(password), createdAt: Date.now() };
+        const token = generateToken();
+        usersData[name] = { password: hashPassword(password), token, createdAt: Date.now() };
         saveUsers();
-        jsonRes(res, 200, { ok: true, username: name });
+        jsonRes(res, 200, { ok: true, username: name, token });
       } catch(e) { jsonRes(res, 400, { error: '请求格式错误' }); }
     });
     return;
@@ -87,7 +97,26 @@ const httpServer = http.createServer((req, res) => {
         const user = usersData[name];
         if (!user) { jsonRes(res, 400, { error: '用户不存在' }); return; }
         if (user.password !== hashPassword(password)) { jsonRes(res, 400, { error: '密码错误' }); return; }
-        jsonRes(res, 200, { ok: true, username: name });
+        const token = generateToken();
+        user.token = token;
+        saveUsers();
+        jsonRes(res, 200, { ok: true, username: name, token });
+      } catch(e) { jsonRes(res, 400, { error: '请求格式错误' }); }
+    });
+    return;
+  }
+
+  if (req.url === '/api/verify' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { username, token } = JSON.parse(body);
+        if (verifyToken(username, token)) {
+          jsonRes(res, 200, { ok: true, username });
+        } else {
+          jsonRes(res, 401, { error: '登录已过期' });
+        }
       } catch(e) { jsonRes(res, 400, { error: '请求格式错误' }); }
     });
     return;
@@ -98,11 +127,10 @@ const httpServer = http.createServer((req, res) => {
     req.on('data', c => body += c);
     req.on('end', () => {
       try {
-        const { username, mode, score, platformIndex, rank } = JSON.parse(body);
-        if (!username || !usersData[username]) { jsonRes(res, 400, { error: '用户未登录' }); return; }
+        const { username, token, mode, score, platformIndex, rank } = JSON.parse(body);
+        if (!verifyToken(username, token)) { jsonRes(res, 401, { error: '未登录或登录已过期' }); return; }
         const now = Date.now();
         if (mode === 'classic') {
-          // 经典模式：记录最高分（只保留每人最高）
           const existing = leaderboardData.classic.findIndex(e => e.username === username);
           if (existing >= 0) {
             if (score > leaderboardData.classic[existing].score) {
@@ -114,7 +142,6 @@ const httpServer = http.createServer((req, res) => {
           leaderboardData.classic.sort((a, b) => b.score - a.score);
           leaderboardData.classic = leaderboardData.classic.slice(0, 50);
         } else if (mode === 'arena') {
-          // 竞技模式：记录每次对局（保留最近50条）
           leaderboardData.arena.push({ username, platformIndex: platformIndex || 0, rank: rank || 0, date: now });
           leaderboardData.arena.sort((a, b) => {
             if (a.rank !== b.rank) return a.rank - b.rank;
