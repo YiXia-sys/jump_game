@@ -9,7 +9,15 @@ const PORT = process.env.PORT || 3000;
 const HEARTBEAT_TIMEOUT = 5000;
 const ROOM_DESTROY_DELAY = 30000;
 const CHAR_COLORS = ['#e94560','#00b4d8','#fb8500','#06d6a0','#8338ec','#ff6b6b'];
-const BOT_NAMES = ['小明','小红','小蓝','小绿','小紫'];
+const BOT_SURNAME = ['明','华','红','蓝','绿','紫','风','云','星','月','天','雪','龙','凤','海','山','林','石','光','影','梦','心','玉','金','银','铁','花','竹','松','柏'];
+const BOT_GIVEN = ['轩','宇','泽','辰','阳','瑶','琪','萱','涵','睿','博','翔','逸','然','诺','彤','悦','欣','妍','灵','杰','豪','鑫','磊','伟','强','勇','飞','鹏','达'];
+function randomBotName(existingNames) {
+  for (let i = 0; i < 50; i++) {
+    const n = BOT_SURNAME[Math.floor(Math.random()*BOT_SURNAME.length)] + BOT_GIVEN[Math.floor(Math.random()*BOT_GIVEN.length)] + 'R';
+    if (!existingNames.has(n)) return n;
+  }
+  return '机器' + Date.now().toString(36).slice(-2) + 'R';
+}
 let botIdCounter = 0;
 
 // === 数据持久化 ===
@@ -322,8 +330,8 @@ function addBot(room) {
   if (room.players.size >= 6) return { error: '房间已满' };
   if (room.phase !== 'waiting') return { error: '游戏已开始' };
   const botId = 'bot_' + (++botIdCounter) + '_' + Date.now().toString(36);
-  const nameIdx = [...room.players.values()].filter(p => p.isBot).length;
-  const botName = '🤖 ' + (BOT_NAMES[nameIdx] || ('机器人' + (nameIdx + 1)));
+  const existingNames = new Set([...room.players.values()].map(p => p.name));
+  const botName = '🤖 ' + randomBotName(existingNames);
   const colorIdx = room.players.size % CHAR_COLORS.length;
   const bot = createServerPlayer(botId, botName, null, CHAR_COLORS[colorIdx]);
   bot.isBot = true;

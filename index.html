@@ -2105,14 +2105,50 @@ async function arenaConnect(action) {
 function showArenaRoom(roomState) {
   arenaRoomState = roomState;
   const isHost = roomState.hostId === arenaLocalPlayerId;
+  const players = roomState.players || [];
+  const maxSeats = 6;
+
+  let seatsHtml = '';
+  for (let i = 0; i < maxSeats; i++) {
+    const p = players[i];
+    if (p) {
+      const hostBadge = p.id === roomState.hostId ? ' 👑' : '';
+      const offlineBadge = !p.connected && !p.isBot ? ' <span style="color:#888;">(离线)</span>' : '';
+      const removeBtn = isHost && p.isBot && roomState.phase !== 'playing'
+        ? ` <span class="arena-remove-bot" data-botid="${p.id}" style="cursor:pointer;font-size:11px;color:#ff6b6b;margin-left:4px;">✕</span>`
+        : '';
+      seatsHtml += `<div style="width:100px;height:80px;background:rgba(255,255,255,0.08);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px solid ${p.color};position:relative;">
+        <div style="font-size:24px;">${p.isBot ? '🤖' : '👤'}</div>
+        <div style="font-size:12px;color:${p.color};margin-top:2px;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.name}${hostBadge}${offlineBadge}${removeBtn}</div>
+      </div>`;
+    } else {
+      if (isHost && roomState.phase !== 'playing') {
+        seatsHtml += `<div class="arena-empty-seat" data-seat="${i}" style="width:100px;height:80px;background:rgba(255,255,255,0.04);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed rgba(255,255,255,0.15);cursor:pointer;">
+          <div style="font-size:24px;opacity:0.3;">🤖</div>
+          <div style="font-size:11px;color:rgba(255,255,255,0.3);">添加机器人</div>
+        </div>`;
+      } else {
+        seatsHtml += `<div style="width:100px;height:80px;background:rgba(255,255,255,0.04);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed rgba(255,255,255,0.1);">
+          <div style="font-size:24px;opacity:0.2;">➕</div>
+          <div style="font-size:11px;color:rgba(255,255,255,0.2);">空座位</div>
+        </div>`;
+      }
+    }
+  }
+
+  const playerCount = players.length;
+  const canStart = isHost && playerCount >= 2 && roomState.phase !== 'playing';
+
   overlay.innerHTML = `
     <h1 style="font-size:28px">🏟️ 房间</h1>
     <div style="font-size:36px;color:#ffd700;letter-spacing:8px;margin:10px 0;cursor:pointer;" id="arenaRoomCode" title="点击复制">${roomState.code}</div>
     <p style="color:#aaa;font-size:12px;margin-bottom:10px;">点击房间码复制，分享给朋友</p>
-    <div id="arenaPlayerList" style="margin:10px 0;"></div>
-    <div style="display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;">
-      ${isHost ? '<button id="arenaAddBotBtn" style="padding:8px 20px;font-size:14px;border:none;border-radius:6px;background:#0f3460;color:#fff;cursor:pointer;">🤖 添加机器人</button>' : ''}
-      ${isHost ? '<button id="arenaStartBtn" style="padding:10px 30px;font-size:18px;border:none;border-radius:8px;background:#e94560;color:#fff;cursor:pointer;">开始游戏</button>' : '<p style="color:#aaa;">等待房主开始游戏...</p>'}
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:15px auto;max-width:340px;">
+      ${seatsHtml}
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:10px;">
+      ${canStart ? '<button id="arenaStartBtn" style="padding:10px 30px;font-size:18px;border:none;border-radius:8px;background:#e94560;color:#fff;cursor:pointer;">开始游戏</button>' : ''}
+      ${!isHost && roomState.phase !== 'playing' ? '<p style="color:#aaa;">等待房主开始游戏...</p>' : ''}
     </div>
     <button id="arenaLeaveBtn" style="padding:6px 20px;font-size:14px;border:none;border-radius:6px;background:#555;color:#fff;cursor:pointer;margin-top:10px;">离开房间</button>
     <div id="arenaStatus" style="color:#ff6b6b;margin-top:8px;font-size:13px;"></div>
@@ -2120,30 +2156,23 @@ function showArenaRoom(roomState) {
   document.getElementById('arenaRoomCode').onclick = () => {
     navigator.clipboard.writeText(roomState.code).catch(() => {});
   };
-  if (isHost) {
+  if (canStart) {
     document.getElementById('arenaStartBtn').onclick = () => arenaNet.send({ type: 'start_game' });
-    document.getElementById('arenaAddBotBtn').onclick = () => arenaNet.send({ type: 'add_bot' });
   }
+  document.querySelectorAll('.arena-empty-seat').forEach(el => {
+    el.onclick = () => arenaNet.send({ type: 'add_bot' });
+  });
+  document.querySelectorAll('.arena-remove-bot').forEach(el => {
+    el.onclick = (e) => {
+      e.stopPropagation();
+      arenaNet.send({ type: 'remove_bot', botId: el.dataset.botid });
+    };
+  });
   document.getElementById('arenaLeaveBtn').onclick = () => {
     arenaNet.disconnect();
     arenaMode = false;
     showOverlay(false);
   };
-  updateArenaPlayerList(roomState.players);
-}
-
-function updateArenaPlayerList(players) {
-  const el = document.getElementById('arenaPlayerList');
-  if (!el) return;
-  const isHost = arenaRoomState && arenaRoomState.hostId === arenaLocalPlayerId;
-  el.innerHTML = players.map(p => {
-    const hostBadge = p.id === arenaRoomState.hostId ? ' 👑' : '';
-    const offlineBadge = !p.connected && !p.isBot ? ' (离线)' : '';
-    const removeBtn = isHost && p.isBot && arenaRoomState.phase !== 'playing'
-      ? ` <span style="cursor:pointer;font-size:12px;color:#ff6b6b;margin-left:6px;" onclick="arenaNet.send({type:'remove_bot',botId:'${p.id}'})">✕移除</span>`
-      : '';
-    return `<div style="color:${p.color};font-size:15px;margin:3px 0;">${p.name}${hostBadge}${offlineBadge}${removeBtn}</div>`;
-  }).join('');
 }
 
 function showArenaDisconnect() {
@@ -2176,7 +2205,7 @@ function handleArenaMessage(msg) {
     case 'player_list_update':
       if (arenaRoomState) {
         arenaRoomState.players = msg.players;
-        updateArenaPlayerList(msg.players);
+        showArenaRoom(arenaRoomState);
       }
       break;
     case 'host_changed':
