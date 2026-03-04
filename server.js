@@ -875,6 +875,36 @@ function handleDisconnect(playerId) {
   const player = room.players.get(playerId);
   if (!player || !player.connected) return;
 
+  // 等待阶段：直接移除玩家，腾出座位
+  if (room.phase === 'waiting') {
+    room.players.delete(playerId);
+    playerRooms.delete(playerId);
+    clearHeartbeat(playerId);
+
+    // Host 转移
+    if (room.hostId === playerId) {
+      let newHost = null;
+      for (const [id, p] of room.players) {
+        if (!p.isBot) { newHost = id; break; }
+      }
+      if (newHost) {
+        room.hostId = newHost;
+        broadcastAll(room, { type: 'host_changed', newHostId: newHost });
+      }
+    }
+
+    broadcastAll(room, { type: 'player_list_update', players: getPlayerInfoList(room) });
+
+    // 如果房间没有真人了，销毁
+    const hasHuman = [...room.players.values()].some(p => !p.isBot);
+    if (!hasHuman) {
+      for (const [id] of room.players) playerRooms.delete(id);
+      rooms.delete(roomCode);
+    }
+    return;
+  }
+
+  // 游戏进行中：标记离线
   player.connected = false;
   broadcastAll(room, { type: 'player_disconnected', playerId });
   broadcastAll(room, { type: 'player_list_update', players: getPlayerInfoList(room) });
@@ -891,11 +921,9 @@ function handleDisconnect(playerId) {
   }
 
   // 如果是当前回合玩家，跳过
-  if (room.phase === 'playing') {
-    const currentId = room.turnOrder[room.currentTurnIndex];
-    if (currentId === playerId) {
-      advanceTurn(room);
-    }
+  const currentId = room.turnOrder[room.currentTurnIndex];
+  if (currentId === playerId) {
+    advanceTurn(room);
   }
 
   // 检查是否所有真人玩家断线

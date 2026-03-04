@@ -1978,11 +1978,15 @@ class NetworkClient {
     return new Promise((resolve, reject) => {
       try {
         this.ws = new WebSocket(url);
-        this.ws.onopen = () => { this.reconnectAttempts = 0; resolve(); };
         this.ws.onmessage = (e) => {
           try {
             const msg = JSON.parse(e.data);
-            if (msg.type === 'welcome') this.playerId = msg.playerId;
+            if (msg.type === 'welcome') {
+              this.playerId = msg.playerId;
+              this.reconnectAttempts = 0;
+              resolve();
+              return;
+            }
             this.handlers.forEach(h => h(msg));
           } catch(err) {}
         };
