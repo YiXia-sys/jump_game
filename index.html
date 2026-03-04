@@ -144,7 +144,6 @@
 <div id="gameArea">
   <canvas id="game"></canvas>
   <div id="gameButtons">
-    <button id="renameBtn" style="background:#333;font-size:10px;padding:3px 8px;">✏️</button>
     <button id="backBtn">返回</button>
     <button id="restartBtn">重新开始</button>
   </div>
@@ -157,21 +156,13 @@
     <button id="startBtn">经典模式</button>
     <button id="testModeBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#0f3460;color:#fff;cursor:pointer;margin-top:10px;">测试模式</button>
     <button id="arenaModeBtn" style="padding:12px 40px;font-size:20px;border:none;border-radius:8px;background:#533483;color:#fff;cursor:pointer;margin-top:10px;">竞技模式</button>
+    <button id="leaderboardBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#fb8500;color:#fff;cursor:pointer;margin-top:10px;">🏆 排行榜</button>
     <button id="homeBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#555;color:#fff;cursor:pointer;margin-top:10px;display:none;">返回首页</button>
     <div id="highScoreArea" style="margin-top:16px;text-align:center;">
       <div id="highScoreDisplay" style="color:#ffd700;font-size:16px;"></div>
       <button id="clearScoreBtn" style="padding:4px 16px;font-size:12px;border:none;border-radius:6px;background:#555;color:#aaa;cursor:pointer;margin-top:6px;display:none;">清空记录</button>
     </div>
-    <div id="nameArea" style="margin-top:14px;text-align:center;">
-      <div id="nameEditMode">
-        <input id="nameInput" type="text" maxlength="8" placeholder="输入角色名称" style="padding:6px 12px;font-size:14px;border:none;border-radius:6px;background:rgba(255,255,255,0.12);color:#fff;text-align:center;outline:none;width:140px;">
-        <button id="nameConfirmBtn" style="padding:6px 12px;font-size:13px;border:none;border-radius:6px;background:#e94560;color:#fff;cursor:pointer;margin-left:4px;">确定</button>
-      </div>
-      <div id="nameShowMode" style="display:none;color:#ccc;font-size:14px;">
-        <span id="nameDisplay"></span>
-        <span id="nameEditBtn" style="cursor:pointer;margin-left:4px;opacity:0.5;">✏️</span>
-      </div>
-    </div>
+    <div id="authArea" style="margin-top:14px;text-align:center;"></div>
   </div>
 </div>
 
@@ -191,14 +182,6 @@ const restartBtn = document.getElementById('restartBtn');
 const highScoreDisplay = document.getElementById('highScoreDisplay');
 const clearScoreBtn = document.getElementById('clearScoreBtn');
 const homeBtn = document.getElementById('homeBtn');
-const nameInput = document.getElementById('nameInput');
-const nameConfirmBtn = document.getElementById('nameConfirmBtn');
-const nameArea = document.getElementById('nameArea');
-const nameEditMode = document.getElementById('nameEditMode');
-const nameShowMode = document.getElementById('nameShowMode');
-const nameDisplay = document.getElementById('nameDisplay');
-const nameEditBtn = document.getElementById('nameEditBtn');
-const renameBtn = document.getElementById('renameBtn');
 
 const W = 600, H = 650;
 canvas.width = W;
@@ -265,72 +248,122 @@ function updateHighScoreDisplay() {
 
 // === 角色名称管理 ===
 const PLAYER_NAME_KEY = 'jumpGame_playerName';
+const LOGGED_IN_KEY = 'jumpGame_loggedInUser';
 
 function getPlayerName() {
-  return localStorage.getItem(PLAYER_NAME_KEY) || '';
+  return getLoggedInUser() || localStorage.getItem(PLAYER_NAME_KEY) || '';
 }
 
 function savePlayerName(name) {
   localStorage.setItem(PLAYER_NAME_KEY, name.trim() || '角色1');
 }
 
-function initNameInput() {
-  const saved = getPlayerName();
-  if (saved) {
-    showNameDisplay(saved);
-  } else {
-    showNameEdit();
+function getLoggedInUser() {
+  return localStorage.getItem(LOGGED_IN_KEY) || '';
+}
+
+function setLoggedInUser(username) {
+  localStorage.setItem(LOGGED_IN_KEY, username);
+  savePlayerName(username);
+}
+
+function logoutUser() {
+  localStorage.removeItem(LOGGED_IN_KEY);
+}
+
+function getApiBase() {
+  return window.location.origin || 'http://localhost:3000';
+}
+
+async function doAuth(action) {
+  const userEl = document.getElementById('authUser');
+  const passEl = document.getElementById('authPass');
+  const msgEl = document.getElementById('authMsg');
+  if (!userEl || !passEl) return;
+  const username = userEl.value.trim();
+  const password = passEl.value;
+  if (!username || !password) { if (msgEl) msgEl.textContent = '请输入用户名和密码'; return; }
+  const url = action === 'register' ? '/api/register' : '/api/login';
+  try {
+    if (msgEl) msgEl.textContent = '请稍候...';
+    const resp = await fetch(getApiBase() + url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      setLoggedInUser(data.username);
+      showOverlay(false);
+    } else {
+      if (msgEl) msgEl.textContent = data.error || '操作失败';
+    }
+  } catch(e) {
+    if (msgEl) msgEl.textContent = '网络错误，请确认服务器已启动';
   }
 }
 
-function showNameDisplay(name) {
-  nameEditMode.style.display = 'none';
-  nameShowMode.style.display = '';
-  nameDisplay.textContent = '👤 ' + name;
+async function submitScore(mode, score, platformIndex, rank) {
+  const username = getLoggedInUser();
+  if (!username) return;
+  try {
+    await fetch(getApiBase() + '/api/score', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, mode, score, platformIndex, rank })
+    });
+  } catch(e) {}
 }
 
-function showNameEdit() {
-  nameEditMode.style.display = '';
-  nameShowMode.style.display = 'none';
-  nameInput.value = getPlayerName() || '';
-  nameInput.focus();
-}
+async function showLeaderboard() {
+  overlay.style.display = 'flex';
+  overlay.innerHTML = `
+    <h1 style="font-size:28px">🏆 排行榜</h1>
+    <div style="display:flex;gap:8px;margin:10px 0;">
+      <button id="lbClassicTab" style="padding:6px 16px;font-size:14px;border:none;border-radius:6px;background:#e94560;color:#fff;cursor:pointer;">经典模式</button>
+      <button id="lbArenaTab" style="padding:6px 16px;font-size:14px;border:none;border-radius:6px;background:#555;color:#fff;cursor:pointer;">竞技模式</button>
+    </div>
+    <div id="lbContent" style="max-height:350px;overflow-y:auto;width:90%;max-width:400px;"></div>
+    <button id="lbBackBtn" style="padding:6px 20px;font-size:14px;border:none;border-radius:6px;background:#555;color:#fff;cursor:pointer;margin-top:12px;">返回</button>
+  `;
+  document.getElementById('lbBackBtn').onclick = () => showOverlay(false);
+  let currentTab = 'classic';
+  const classicTab = document.getElementById('lbClassicTab');
+  const arenaTab = document.getElementById('lbArenaTab');
+  classicTab.onclick = () => { currentTab = 'classic'; classicTab.style.background = '#e94560'; arenaTab.style.background = '#555'; renderLb(); };
+  arenaTab.onclick = () => { currentTab = 'arena'; arenaTab.style.background = '#533483'; classicTab.style.background = '#555'; renderLb(); };
 
-function confirmName() {
-  const name = nameInput.value.trim();
-  if (name) {
-    savePlayerName(name);
-    showNameDisplay(name);
-    if (roster && roster.getCurrent()) {
-      roster.getCurrent().name = name;
-      updateStatusBar();
+  let lbData = { classic: [], arena: [] };
+  try {
+    const resp = await fetch(getApiBase() + '/api/leaderboard');
+    lbData = await resp.json();
+  } catch(e) {
+    document.getElementById('lbContent').innerHTML = '<p style="color:#ff6b6b;font-size:13px;">无法加载排行榜，请确认服务器已启动</p>';
+    return;
+  }
+
+  function renderLb() {
+    const el = document.getElementById('lbContent');
+    if (!el) return;
+    if (currentTab === 'classic') {
+      if (lbData.classic.length === 0) { el.innerHTML = '<p style="color:#aaa;font-size:14px;">暂无记录</p>'; return; }
+      el.innerHTML = '<div style="display:flex;justify-content:space-between;color:#aaa;font-size:12px;padding:4px 8px;border-bottom:1px solid rgba(255,255,255,0.1);"><span>排名</span><span>玩家</span><span>分数</span></div>' +
+        lbData.classic.map((e, i) => {
+          const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
+          const isMe = e.username === getLoggedInUser();
+          return `<div style="display:flex;justify-content:space-between;padding:4px 8px;font-size:14px;color:${isMe ? '#ffd700' : '#ccc'};${isMe ? 'background:rgba(255,215,0,0.1);border-radius:4px;' : ''}"><span>${medal}</span><span>${e.username}</span><span>${e.score}分</span></div>`;
+        }).join('');
+    } else {
+      if (lbData.arena.length === 0) { el.innerHTML = '<p style="color:#aaa;font-size:14px;">暂无记录</p>'; return; }
+      el.innerHTML = '<div style="display:flex;justify-content:space-between;color:#aaa;font-size:12px;padding:4px 8px;border-bottom:1px solid rgba(255,255,255,0.1);"><span>#</span><span>玩家</span><span>名次</span><span>到达</span></div>' +
+        lbData.arena.map((e, i) => {
+          const isMe = e.username === getLoggedInUser();
+          return `<div style="display:flex;justify-content:space-between;padding:4px 8px;font-size:14px;color:${isMe ? '#ffd700' : '#ccc'};${isMe ? 'background:rgba(255,215,0,0.1);border-radius:4px;' : ''}"><span>${i + 1}</span><span>${e.username}</span><span>第${e.rank}名</span><span>第${e.platformIndex}格</span></div>`;
+        }).join('');
     }
   }
+  renderLb();
 }
-
-initNameInput();
-
-nameConfirmBtn.addEventListener('click', confirmName);
-
-nameInput.addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') confirmName();
-});
-
-nameEditBtn.addEventListener('click', function() {
-  showNameEdit();
-});
-
-renameBtn.addEventListener('click', function() {
-  const newName = prompt('输入新的角色名称:', getPlayerName() || '角色1');
-  if (newName !== null && newName.trim()) {
-    savePlayerName(newName.trim());
-    showNameDisplay(newName.trim());
-    if (roster && roster.getCurrent()) {
-      roster.getCurrent().name = newName.trim();
-      updateStatusBar();
-    }
-  }
-});
 
 const COLORS = ['#e94560','#0f3460','#533483','#00b4d8','#fb8500','#8338ec','#06d6a0','#ef476f'];
 const CHAR_COLORS = ['#e94560','#00b4d8','#fb8500','#06d6a0','#8338ec'];
@@ -1049,6 +1082,7 @@ function initGame(isTestMode) {
 }
 
 function rebuildOverlayHTML() {
+  const loggedIn = getLoggedInUser();
   overlay.innerHTML = `
     <h1>🎮 跳跳游戏</h1>
     <p>按住蓄力，松开跳跃</p>
@@ -1057,20 +1091,24 @@ function rebuildOverlayHTML() {
     <button id="startBtn">经典模式</button>
     <button id="testModeBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#0f3460;color:#fff;cursor:pointer;margin-top:10px;">测试模式</button>
     <button id="arenaModeBtn" style="padding:12px 40px;font-size:20px;border:none;border-radius:8px;background:#533483;color:#fff;cursor:pointer;margin-top:10px;">竞技模式</button>
+    <button id="leaderboardBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#fb8500;color:#fff;cursor:pointer;margin-top:10px;">🏆 排行榜</button>
     <button id="homeBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#555;color:#fff;cursor:pointer;margin-top:10px;display:none;">返回首页</button>
     <div id="highScoreArea" style="margin-top:16px;text-align:center;">
       <div id="highScoreDisplay" style="color:#ffd700;font-size:16px;"></div>
       <button id="clearScoreBtn" style="padding:4px 16px;font-size:12px;border:none;border-radius:6px;background:#555;color:#aaa;cursor:pointer;margin-top:6px;display:none;">清空记录</button>
     </div>
-    <div id="nameArea" style="margin-top:14px;text-align:center;">
-      <div id="nameEditMode">
-        <input id="nameInput" type="text" maxlength="8" placeholder="输入角色名称" style="padding:6px 12px;font-size:14px;border:none;border-radius:6px;background:rgba(255,255,255,0.12);color:#fff;text-align:center;outline:none;width:140px;">
-        <button id="nameConfirmBtn" style="padding:6px 12px;font-size:13px;border:none;border-radius:6px;background:#e94560;color:#fff;cursor:pointer;margin-left:4px;">确定</button>
-      </div>
-      <div id="nameShowMode" style="display:none;color:#ccc;font-size:14px;">
-        <span id="nameDisplay"></span>
-        <span id="nameEditBtn" style="cursor:pointer;margin-left:4px;opacity:0.5;">✏️</span>
-      </div>
+    <div id="authArea" style="margin-top:14px;text-align:center;">
+      ${loggedIn ? `
+        <div style="color:#06d6a0;font-size:14px;">👤 ${loggedIn} <span id="logoutBtn" style="cursor:pointer;color:#aaa;font-size:12px;margin-left:6px;">退出</span></div>
+      ` : `
+        <div id="authForm">
+          <input id="authUser" type="text" maxlength="8" placeholder="用户名" style="padding:6px 10px;font-size:13px;border:none;border-radius:6px;background:rgba(255,255,255,0.12);color:#fff;text-align:center;outline:none;width:90px;">
+          <input id="authPass" type="password" maxlength="20" placeholder="密码" style="padding:6px 10px;font-size:13px;border:none;border-radius:6px;background:rgba(255,255,255,0.12);color:#fff;text-align:center;outline:none;width:90px;">
+          <button id="loginBtn" style="padding:6px 12px;font-size:13px;border:none;border-radius:6px;background:#06d6a0;color:#fff;cursor:pointer;margin-left:4px;">登录</button>
+          <button id="registerBtn" style="padding:6px 12px;font-size:13px;border:none;border-radius:6px;background:#0f3460;color:#fff;cursor:pointer;margin-left:2px;">注册</button>
+        </div>
+        <div id="authMsg" style="color:#ff6b6b;font-size:12px;margin-top:4px;"></div>
+      `}
     </div>
   `;
   // 重新绑定事件
@@ -1083,22 +1121,24 @@ function rebuildOverlayHTML() {
   document.getElementById('arenaModeBtn').addEventListener('click', function() {
     stopHomeBg(); showArenaLobby();
   });
+  document.getElementById('leaderboardBtn').addEventListener('click', function() {
+    showLeaderboard();
+  });
   document.getElementById('homeBtn').addEventListener('click', function() {
     gameRunning = false; falling = false; jumpAnim = null; slipping = false; fallToBase = null; showOverlay(false);
   });
   document.getElementById('clearScoreBtn').addEventListener('click', function() { clearHighScore(); });
-  document.getElementById('nameConfirmBtn').addEventListener('click', function() {
-    const n = document.getElementById('nameInput').value.trim();
-    if (n) { savePlayerName(n); showNameDisplay(n); if (roster && roster.getCurrent()) { roster.getCurrent().name = n; updateStatusBar(); } }
-  });
-  document.getElementById('nameInput').addEventListener('keydown', function(e) { if (e.key === 'Enter') document.getElementById('nameConfirmBtn').click(); });
-  document.getElementById('nameEditBtn').addEventListener('click', function() { showNameEdit(); });
-  // 恢复名称显示
-  const saved = getPlayerName();
-  if (saved) {
-    document.getElementById('nameEditMode').style.display = 'none';
-    document.getElementById('nameShowMode').style.display = '';
-    document.getElementById('nameDisplay').textContent = '👤 ' + saved;
+  // 登录/注册/退出
+  if (loggedIn) {
+    const logoutEl = document.getElementById('logoutBtn');
+    if (logoutEl) logoutEl.addEventListener('click', function() { logoutUser(); showOverlay(false); });
+  } else {
+    const loginEl = document.getElementById('loginBtn');
+    const regEl = document.getElementById('registerBtn');
+    if (loginEl) loginEl.addEventListener('click', function() { doAuth('login'); });
+    if (regEl) regEl.addEventListener('click', function() { doAuth('register'); });
+    const passEl = document.getElementById('authPass');
+    if (passEl) passEl.addEventListener('keydown', function(e) { if (e.key === 'Enter') doAuth('login'); });
   }
 }
 
@@ -1121,6 +1161,8 @@ function showOverlay(isGameOver) {
     if (!testMode) {
       const isNew = saveHighScore(totalScore);
       if (isNew) finalScoreEl.textContent += ' 🎉 新纪录!';
+      // 提交经典模式分数到服务器
+      submitScore('classic', totalScore);
     }
     charResultsEl.style.display = 'block';
     charResultsEl.innerHTML = roster.characters.map(c =>
@@ -1166,6 +1208,10 @@ document.getElementById('arenaModeBtn').addEventListener('click', function() {
   showArenaLobby();
 });
 
+document.getElementById('leaderboardBtn').addEventListener('click', function() {
+  showLeaderboard();
+});
+
 backBtn.addEventListener('click', function() {
   gameRunning = false;
   falling = false;
@@ -1194,6 +1240,34 @@ homeBtn.addEventListener('click', function() {
   fallToBase = null;
   showOverlay(false);
 });
+
+// 初始化登录/注册 UI（首次加载时绑定）
+(function initAuth() {
+  const loggedIn = getLoggedInUser();
+  const authArea = document.getElementById('authArea');
+  if (!authArea) return;
+  if (loggedIn) {
+    authArea.innerHTML = `<div style="color:#06d6a0;font-size:14px;">👤 ${loggedIn} <span id="logoutBtnInit" style="cursor:pointer;color:#aaa;font-size:12px;margin-left:6px;">退出</span></div>`;
+    const lb = document.getElementById('logoutBtnInit');
+    if (lb) lb.addEventListener('click', function() { logoutUser(); location.reload(); });
+  } else {
+    authArea.innerHTML = `
+      <div>
+        <input id="authUser" type="text" maxlength="8" placeholder="用户名" style="padding:6px 10px;font-size:13px;border:none;border-radius:6px;background:rgba(255,255,255,0.12);color:#fff;text-align:center;outline:none;width:90px;">
+        <input id="authPass" type="password" maxlength="20" placeholder="密码" style="padding:6px 10px;font-size:13px;border:none;border-radius:6px;background:rgba(255,255,255,0.12);color:#fff;text-align:center;outline:none;width:90px;">
+        <button id="loginBtn" style="padding:6px 12px;font-size:13px;border:none;border-radius:6px;background:#06d6a0;color:#fff;cursor:pointer;margin-left:4px;">登录</button>
+        <button id="registerBtn" style="padding:6px 12px;font-size:13px;border:none;border-radius:6px;background:#0f3460;color:#fff;cursor:pointer;margin-left:2px;">注册</button>
+      </div>
+      <div id="authMsg" style="color:#ff6b6b;font-size:12px;margin-top:4px;"></div>
+    `;
+    const loginEl = document.getElementById('loginBtn');
+    const regEl = document.getElementById('registerBtn');
+    if (loginEl) loginEl.addEventListener('click', function() { doAuth('login'); });
+    if (regEl) regEl.addEventListener('click', function() { doAuth('register'); });
+    const passEl = document.getElementById('authPass');
+    if (passEl) passEl.addEventListener('keydown', function(e) { if (e.key === 'Enter') doAuth('login'); });
+  }
+})();
 
 // === 首页背景动画 ===
 let homeBgRunning = false;
@@ -1941,13 +2015,13 @@ let arenaRoundNumber = 0;
 let arenaIsMyTurn = false;
 let arenaGhosts = [];
 let arenaEventPopups = [];
-let arenaServerUrl = 'ws://localhost:3000';
+let arenaServerUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
 
 // === 竞技模式：房间大厅 UI ===
 
 function showArenaLobby() {
   const name = getPlayerName();
-  if (!name) { alert('请先输入角色名称'); return; }
+  if (!name) { alert('请先登录或注册'); return; }
   overlay.innerHTML = `
     <h1 style="font-size:32px">🏟️ 竞技模式</h1>
     <p style="color:#aaa;margin-bottom:15px">回合制多人赛跑对战</p>
@@ -2316,6 +2390,11 @@ function arenaOnGameEnd(winnerId, rankings) {
   gameRunning = false;
   arenaMode = false;
   if (winnerId === arenaLocalPlayerId) ArenaSFX.victory();
+  // 提交竞技模式分数
+  const myRanking = rankings.find(r => r.playerId === arenaLocalPlayerId);
+  if (myRanking) {
+    submitScore('arena', 0, myRanking.platformIndex, myRanking.rank);
+  }
   arenaShowRankScreen(rankings);
 }
 

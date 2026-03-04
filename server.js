@@ -1,4 +1,8 @@
 const { WebSocketServer } = require('ws');
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 
 // === 配置 ===
 const PORT = process.env.PORT || 3000;
@@ -7,6 +11,149 @@ const ROOM_DESTROY_DELAY = 30000;
 const CHAR_COLORS = ['#e94560','#00b4d8','#fb8500','#06d6a0','#8338ec','#ff6b6b'];
 const BOT_NAMES = ['小明','小红','小蓝','小绿','小紫'];
 let botIdCounter = 0;
+
+// === 数据持久化 ===
+const DATA_DIR = path.join(__dirname, 'data');
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const LEADERBOARD_FILE = path.join(DATA_DIR, 'leaderboard.json');
+
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+let usersData = {};
+let leaderboardData = { classic: [], arena: [] };
+
+function loadData() {
+  try {
+    if (fs.existsSync(USERS_FILE)) usersData = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+  } catch(e) { usersData = {}; }
+  try {
+    if (fs.existsSync(LEADERBOARD_FILE)) leaderboardData = JSON.parse(fs.readFileSync(LEADERBOARD_FILE, 'utf8'));
+  } catch(e) { leaderboardData = { classic: [], arena: [] }; }
+  if (!leaderboardData.classic) leaderboardData.classic = [];
+  if (!leaderboardData.arena) leaderboardData.arena = [];
+}
+
+function saveUsers() {
+  fs.writeFileSync(USERS_FILE, JSON.stringify(usersData, null, 2), 'utf8');
+}
+
+function saveLeaderboard() {
+  fs.writeFileSync(LEADERBOARD_FILE, JSON.stringify(leaderboardData, null, 2), 'utf8');
+}
+
+loadData();
+
+function hashPassword(password) {
+  return crypto.createHash('sha256').update(password + 'jump_game_salt').digest('hex');
+}
+
+// === HTTP 服务 + API ===
+
+const httpServer = http.createServer((req, res) => {
+  // CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
+
+  // API 路由
+  if (req.url === '/api/register' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { username, password } = JSON.parse(body);
+        if (!username || !password) { jsonRes(res, 400, { error: '用户名和密码不能为空' }); return; }
+        const name = username.trim().slice(0, 8);
+        if (name.length < 1) { jsonRes(res, 400, { error: '用户名至少1个字符' }); return; }
+        if (password.length < 3) { jsonRes(res, 400, { error: '密码至少3个字符' }); return; }
+        if (usersData[name]) { jsonRes(res, 400, { error: '用户名已存在' }); return; }
+        usersData[name] = { password: hashPassword(password), createdAt: Date.now() };
+        saveUsers();
+        jsonRes(res, 200, { ok: true, username: name });
+      } catch(e) { jsonRes(res, 400, { error: '请求格式错误' }); }
+    });
+    return;
+  }
+
+  if (req.url === '/api/login' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { username, password } = JSON.parse(body);
+        const name = (username || '').trim();
+        if (!name || !password) { jsonRes(res, 400, { error: '用户名和密码不能为空' }); return; }
+        const user = usersData[name];
+        if (!user) { jsonRes(res, 400, { error: '用户不存在' }); return; }
+        if (user.password !== hashPassword(password)) { jsonRes(res, 400, { error: '密码错误' }); return; }
+        jsonRes(res, 200, { ok: true, username: name });
+      } catch(e) { jsonRes(res, 400, { error: '请求格式错误' }); }
+    });
+    return;
+  }
+
+  if (req.url === '/api/score' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { username, mode, score, platformIndex, rank } = JSON.parse(body);
+        if (!username || !usersData[username]) { jsonRes(res, 400, { error: '用户未登录' }); return; }
+        const now = Date.now();
+        if (mode === 'classic') {
+          // 经典模式：记录最高分（只保留每人最高）
+          const existing = leaderboardData.classic.findIndex(e => e.username === username);
+          if (existing >= 0) {
+            if (score > leaderboardData.classic[existing].score) {
+              leaderboardData.classic[existing] = { username, score, date: now };
+            }
+          } else {
+            leaderboardData.classic.push({ username, score, date: now });
+          }
+          leaderboardData.classic.sort((a, b) => b.score - a.score);
+          leaderboardData.classic = leaderboardData.classic.slice(0, 50);
+        } else if (mode === 'arena') {
+          // 竞技模式：记录每次对局（保留最近50条）
+          leaderboardData.arena.push({ username, platformIndex: platformIndex || 0, rank: rank || 0, date: now });
+          leaderboardData.arena.sort((a, b) => {
+            if (a.rank !== b.rank) return a.rank - b.rank;
+            return b.platformIndex - a.platformIndex;
+          });
+          leaderboardData.arena = leaderboardData.arena.slice(0, 50);
+        }
+        saveLeaderboard();
+        jsonRes(res, 200, { ok: true });
+      } catch(e) { jsonRes(res, 400, { error: '请求格式错误' }); }
+    });
+    return;
+  }
+
+  if (req.url === '/api/leaderboard' && req.method === 'GET') {
+    jsonRes(res, 200, {
+      classic: leaderboardData.classic.slice(0, 20),
+      arena: leaderboardData.arena.slice(0, 20)
+    });
+    return;
+  }
+
+  // 静态文件服务
+  let filePath = req.url === '/' ? '/index.html' : req.url;
+  filePath = path.join(__dirname, filePath);
+  const ext = path.extname(filePath);
+  const mimeTypes = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.ico': 'image/x-icon' };
+  const contentType = mimeTypes[ext] || 'application/octet-stream';
+  fs.readFile(filePath, (err, data) => {
+    if (err) { res.writeHead(404); res.end('Not Found'); return; }
+    res.writeHead(200, { 'Content-Type': contentType + '; charset=utf-8' });
+    res.end(data);
+  });
+});
+
+function jsonRes(res, code, data) {
+  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(data));
+}
 
 // === 工具函数 ===
 let playerIdCounter = 0;
@@ -749,8 +896,11 @@ function handleReconnect(ws, playerId, roomCode) {
 
 // === WebSocket 服务 ===
 
-const wss = new WebSocketServer({ port: PORT });
-console.log(`游戏服务器启动在端口 ${PORT}`);
+const wss = new WebSocketServer({ server: httpServer });
+httpServer.listen(PORT, () => {
+  console.log(`游戏服务器启动在端口 ${PORT}`);
+  console.log(`打开 http://localhost:${PORT} 开始游戏`);
+});
 
 wss.on('connection', (ws) => {
   const playerId = generatePlayerId();
