@@ -877,34 +877,38 @@ function generateNextPlatform(basePlatform) {
     sameDirCount = 1;
   }
   nextDir = newDir;
-  // 随跳跃次数平台逐渐变小
-  const shrinkFactor = Math.min(jumpCount * 0.4, 15); // 最多缩小15px
+  // 随跳跃次数平台逐渐变小（难度降低20%）
+  const shrinkFactor = Math.min(jumpCount * 0.32, 12); // 最多缩小12px（原15）
   const pw = Math.max(MIN_PLATFORM_W, MIN_PLATFORM_W + Math.random() * (MAX_PLATFORM_W - MIN_PLATFORM_W) - shrinkFactor);
-  // 间距随跳跃次数逐渐增大
-  const extraGap = Math.min(jumpCount * 1.5, 40);
+  // 间距随跳跃次数逐渐增大（难度降低20%）
+  const extraGap = Math.min(jumpCount * 1.2, 32);
   const minGap = (last.w + pw) / 2 + 50 + extraGap;
-  const gap = minGap + Math.random() * 120;
+  const gap = minGap + Math.random() * 100;
   const nx = last.x + nextDir * gap * 0.5;
   const ny = last.y - gap * 0.3;
   const st = SHAPE_TYPES[Math.floor(Math.random() * SHAPE_TYPES.length)];
   const p = new Platform(nx, ny, pw, PLATFORM_H, st);
 
+  // 检查上一个平台是否是移动平台（防止相邻移动平台）
+  const lastPlatMoving = last && last.moving;
+
   // 根据跳跃次数解锁难度机制（互斥，每个平台最多一种特殊效果）
-  if (jumpCount >= 8 && Math.random() < Math.min(0.3 + jumpCount * 0.008, 0.55)) {
-    // 移动平台：速度和范围随跳跃次数增加
+  // 难度降低20%：解锁门槛提高，概率降低，速度/范围/缩放率减小，限时更宽裕
+  if (!lastPlatMoving && jumpCount >= 10 && Math.random() < Math.min(0.24 + jumpCount * 0.006, 0.44)) {
+    // 移动平台：速度和范围随跳跃次数增加（不与上一个移动平台相邻）
     p.moving = true;
-    const speedBonus = Math.min(jumpCount * 0.00003, 0.001);
-    p.moveSpeed = 0.001 + Math.random() * 0.001 + speedBonus;
-    p.moveRange = 20 + Math.random() * 25 + Math.min(jumpCount * 0.5, 15);
+    const speedBonus = Math.min(jumpCount * 0.000024, 0.0008);
+    p.moveSpeed = 0.0008 + Math.random() * 0.0008 + speedBonus;
+    p.moveRange = 16 + Math.random() * 20 + Math.min(jumpCount * 0.4, 12);
     p.baseX = nx;
-  } else if (jumpCount >= 12 && Math.random() < Math.min(0.25 + jumpCount * 0.006, 0.45)) {
-    // 缩小平台：缩得更快
+  } else if (jumpCount >= 15 && Math.random() < Math.min(0.2 + jumpCount * 0.005, 0.36)) {
+    // 缩小平台：缩得更慢
     p.shrinking = true;
-    p.shrinkRate = 0.012 + Math.random() * 0.01;
-  } else if (jumpCount >= 18 && Math.random() < Math.min(0.2 + jumpCount * 0.005, 0.4)) {
-    // 限时平台：时间更短
+    p.shrinkRate = 0.0096 + Math.random() * 0.008;
+  } else if (jumpCount >= 22 && Math.random() < Math.min(0.16 + jumpCount * 0.004, 0.32)) {
+    // 限时平台：时间更长
     p.timed = true;
-    p.timerDuration = Math.max(1200, 2000 - jumpCount * 15);
+    p.timerDuration = Math.max(1500, 2400 - jumpCount * 12);
   }
 
   platforms.push(p);
@@ -1213,11 +1217,20 @@ function startJump(power) {
   const distRatio = (dist - MIN_JUMP) / (MAX_JUMP - MIN_JUMP);
   const jumpH = MIN_JUMP_HEIGHT + distRatio * (MAX_JUMP_HEIGHT - MIN_JUMP_HEIGHT);
   const jumpDur = 300 + distRatio * (JUMP_DURATION - 300); // 最短300ms，最长800ms
-  // 跳跃方向始终朝向下一个平台的中心
+  // 跳跃方向始终朝向下一个平台的中心（移动平台预判偏移）
   const nextPlat = platforms[platforms.length - 1];
   const nextCenter = nextPlat.getTopCenter();
-  const dx = nextCenter.x - player.x;
-  const dy = nextCenter.y - player.y;
+  let aimX = nextCenter.x;
+  let aimY = nextCenter.y;
+  // 对移动平台进行方向预判：根据平台当前移动方向，预测跳跃到达时的位置
+  if (nextPlat.moving) {
+    const estimatedFlightTime = 500; // 预估飞行时间(ms)
+    const moveDir = Math.cos(nextPlat.movePhase); // 当前移动方向
+    const predictOffset = moveDir * nextPlat.moveRange * 0.35; // 预判偏移量
+    aimX += predictOffset;
+  }
+  const dx = aimX - player.x;
+  const dy = aimY - player.y;
   const dirLen = Math.sqrt(dx * dx + dy * dy);
   const nx = dirLen > 0 ? dx / dirLen : 0;
   const ny = dirLen > 0 ? dy / dirLen : -1;
@@ -1246,12 +1259,13 @@ function handleLanding(platform, platformIdx, landX, landY) {
 
   // 边缘滑落：检查人物脚部是否完全在形状内
   // 人物脚部半径约8px，检测脚部边缘4个点是否都在形状内
-  const footR = 8;
+  const footR = 7;
   const footPoints = [
     [landX - footR, landY],
     [landX + footR, landY],
     [landX, landY - footR * 0.6],
-    [landX, landY + footR * 0.6]
+    [landX, landY + footR * 0.6],
+    [landX, landY] // 第5个点：中心点，提高容错到30%
   ];
   const insideCount = footPoints.filter(([fx, fy]) => platform.hitTest(fx, fy)).length;
   if (insideCount < 3) {
@@ -1277,7 +1291,7 @@ function handleLanding(platform, platformIdx, landX, landY) {
   }
 
   // 边缘容错触发时（不是所有脚点都在平台内），把落点修正到平台范围内
-  if (insideCount < 4) {
+  if (insideCount < 5) {
     const pullRatio = 0.4;
     landX = landX + (center.x - landX) * pullRatio;
     landY = landY + (center.y - landY) * pullRatio;
@@ -1287,7 +1301,23 @@ function handleLanding(platform, platformIdx, landX, landY) {
   const points = landedOnNewPlatform ? calculateScore(dist, maxR) : 0;
   const cur = roster.getCurrent();
   if (points > 0) cur.addScore(points);
-  jumpCount++;
+  if (landedOnNewPlatform) jumpCount++;
+
+  // 40关通关判定
+  if (jumpCount >= 40 && landedOnNewPlatform) {
+    player.x = landX;
+    player.y = landY;
+    player.rotation = 0;
+    cur.addScore(100); // 通关奖励
+    const sx = landX - cameraX, sy = landY - cameraY;
+    showScorePop('🎉 通关! +100', sx, sy);
+    spawnParticles(landX, landY, true);
+    SFX.perfect();
+    updateStatusBar();
+    gameRunning = false;
+    setTimeout(() => showOverlay(true), 1200);
+    return;
+  }
 
   // 玩家停在实际落点
   player.x = landX;
