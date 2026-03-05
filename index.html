@@ -2050,7 +2050,7 @@ let arenaRoundNumber = 0;
 let arenaIsMyTurn = false;
 let arenaGhosts = [];
 let arenaEventPopups = [];
-let arenaServerUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (location.pathname.replace(/\/[^/]*$/, '') || '');
+let arenaServerUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (location.pathname.replace(/\/[^/]*$/, '/'));
 
 // === 竞技模式：房间大厅 UI ===
 
