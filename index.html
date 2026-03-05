@@ -2376,6 +2376,21 @@ function arenaOnTurnStart(playerId) {
     ArenaSFX.turnStart();
     arenaWaitingForDiceClick = true;
   }
+
+  // 重置所有限时平台和缩小平台（每个回合重新开始）
+  for (const plat of arenaRacetrack) {
+    if (plat.timed) {
+      plat.collapsed = false;
+      plat.timerActive = false;
+      plat.timerStart = 0;
+    }
+    if (plat.shrinking === false && plat.shrinkRate > 0) {
+      // 恢复被停止的缩小平台
+      plat.shrinking = true;
+      plat.w = plat.origW;
+    }
+  }
+
   // 镜头移到当前玩家
   const state = arenaPlayerStates.get(playerId);
   if (state && arenaRacetrack[state.platformIndex - 1]) {
@@ -2946,24 +2961,25 @@ function arenaDrawDiceDots(cx, cy, size, value) {
 // === 竞技模式：Ghost 渲染 ===
 
 function arenaRenderGhosts(ox, oy) {
-  // 渲染所有玩家位置标记
+  // 绘制其他玩家角色（50%透明度）
   for (const [pid, state] of arenaPlayerStates) {
     if (pid === arenaLocalPlayerId) continue;
+    // 跳过正在跳跃动画中的玩家（由ghost动画绘制）
+    const isJumping = arenaGhosts.some(g => g.playerId === pid);
+    if (isJumping) continue;
     const platIdx = state.platformIndex - 1;
     if (platIdx < 0 || platIdx >= arenaRacetrack.length) continue;
     const tc = arenaRacetrack[platIdx].getTopCenter();
     const gx = tc.x - ox, gy = tc.y - oy;
     ctx.globalAlpha = 0.5;
-    ctx.fillStyle = arenaGetPlayerColor(pid);
-    ctx.beginPath();
-    ctx.roundRect(gx - 10, gy - 40, 20, 40, [10, 10, 4, 4]);
-    ctx.fill();
+    arenaDrawCharacter(gx, gy, arenaGetPlayerColor(pid));
     // 状态效果
     arenaDrawStatusEffects(gx, gy, state);
+    // 名字
     ctx.fillStyle = '#fff';
-    ctx.font = '10px sans-serif';
+    ctx.font = 'bold 10px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(arenaGetPlayerName(pid), gx, gy - 45);
+    ctx.fillText(arenaGetPlayerName(pid), gx, gy - 48);
     ctx.globalAlpha = 1;
   }
 
@@ -2976,21 +2992,66 @@ function arenaRenderGhosts(ox, oy) {
     }
   }
 
-  // Ghost 跳跃动画
+  // Ghost 跳跃动画（完整角色形态）
   for (let i = arenaGhosts.length - 1; i >= 0; i--) {
     const g = arenaGhosts[i];
     g.progress += 16 / g.duration;
-    if (g.progress >= 1) { arenaGhosts.splice(i, 1); continue; }
+    if (g.progress >= 1) {
+      arenaGhosts.splice(i, 1);
+      continue;
+    }
     const t = g.progress;
     const gx = g.startX + (g.targetX - g.startX) * t - ox;
     const gy = calculateParabola(t, g.startY, g.targetY, g.height) - oy;
+    // 跳跃旋转
+    const rotation = t * Math.PI * 2 * (g.targetX > g.startX ? 1 : -1);
     ctx.globalAlpha = 0.5;
-    ctx.fillStyle = g.color;
-    ctx.beginPath();
-    ctx.roundRect(gx - 10, gy - 40, 20, 40, [10, 10, 4, 4]);
-    ctx.fill();
+    ctx.save();
+    ctx.translate(gx, gy - 20);
+    ctx.rotate(rotation);
+    ctx.translate(-gx, -(gy - 20));
+    arenaDrawCharacter(gx, gy, g.color);
+    ctx.restore();
+    // 名字
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(g.name, gx, gy - 48);
     ctx.globalAlpha = 1;
   }
+}
+
+// 绘制角色（与Player.draw一致的风格）
+function arenaDrawCharacter(px, py, color) {
+  const w = 20, h = 40;
+  // 阴影
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  ctx.beginPath();
+  ctx.ellipse(px, py + 2, w * 0.6, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // 身体
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.roundRect(px - w / 2, py - h, w, h, [w / 2, w / 2, 4, 4]);
+  ctx.fill();
+  // 白色内圈
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.beginPath();
+  ctx.roundRect(px - w / 2 + 3, py - h + 3, w - 6, h - 6, [w / 2 - 3, w / 2 - 3, 2, 2]);
+  ctx.fill();
+  // 眼睛
+  ctx.fillStyle = '#1a1a2e';
+  const eyeY = py - h + h * 0.35;
+  ctx.beginPath();
+  ctx.arc(px - 4, eyeY, 2.5, 0, Math.PI * 2);
+  ctx.arc(px + 4, eyeY, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+  // 高光
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(px - 3, eyeY - 1, 1, 0, Math.PI * 2);
+  ctx.arc(px + 5, eyeY - 1, 1, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 // 绘制玩家状态效果（监狱、护盾、冻结等）
