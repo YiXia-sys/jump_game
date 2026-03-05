@@ -279,7 +279,8 @@ function logoutUser() {
 }
 
 function getApiBase() {
-  return window.location.origin || 'http://localhost:3000';
+  const base = window.location.pathname.replace(/\/[^/]*$/, '');
+  return (window.location.origin || 'http://localhost:3000') + base;
 }
 
 // 页面加载时验证 token
@@ -2049,7 +2050,7 @@ let arenaRoundNumber = 0;
 let arenaIsMyTurn = false;
 let arenaGhosts = [];
 let arenaEventPopups = [];
-let arenaServerUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
+let arenaServerUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (location.pathname.replace(/\/[^/]*$/, '') || '');
 
 // === 竞技模式：房间大厅 UI ===
 
