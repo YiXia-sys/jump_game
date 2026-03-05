@@ -542,14 +542,16 @@ function applyEvent(room, event, triggerPlayerId) {
     case 'jail':
       if (triggerPlayer) {
         triggerPlayer.skipTurns = 2;
-        effects.push({ playerId: triggerPlayerId, effect: 'jail', skipTurns: 2 });
+        room.currentTurnQuota = 0; // 清空当前剩余步数
+        effects.push({ playerId: triggerPlayerId, effect: 'jail', skipTurns: 2, clearQuota: true });
       }
       break;
     case 'hospital':
       if (triggerPlayer) {
-        triggerPlayer.skipTurns = 1;
+        // 医院：不跳过回合，而是额外增加一次投掷机会（+3步数）
+        room.currentTurnQuota += 3;
         triggerPlayer.diceModifier = { type: 'add', value: 2, remainingTurns: 1 };
-        effects.push({ playerId: triggerPlayerId, effect: 'hospital', skipTurns: 1 });
+        effects.push({ playerId: triggerPlayerId, effect: 'hospital', bonusQuota: 3 });
       }
       break;
     case 'fine':
@@ -1063,6 +1065,11 @@ function handleMessage(ws, msg) {
           }
           if (result.winner) {
             endGame(room, result.winner);
+          } else if (room.currentTurnQuota <= 0) {
+            // 事件清空了步数（如监狱），结束回合
+            const p = room.players.get(playerId);
+            if (p) p.autoLandRemaining = 0;
+            advanceTurn(room);
           }
         }
       }

@@ -2048,6 +2048,12 @@ let arenaJumpQuota = 0;
 let arenaDiceValue = 0;
 let arenaRoundNumber = 0;
 let arenaIsMyTurn = false;
+let arenaWaitingForDiceClick = false;
+let arenaDiceAnimating = false;
+let arenaDiceAnimValue = 1;
+let arenaDiceAnimTimer = null;
+let arenaRollBtnRect = null;
+let arenaExitBtnRect = null;
 let arenaGhosts = [];
 let arenaEventPopups = [];
 let arenaServerUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (location.pathname.replace(/\/[^/]*$/, '/'));
@@ -2331,7 +2337,7 @@ function arenaOnTurnStart(playerId) {
   arenaIsMyTurn = (playerId === arenaLocalPlayerId);
   if (arenaIsMyTurn) {
     ArenaSFX.turnStart();
-    arenaNet.send({ type: 'roll_dice' });
+    arenaWaitingForDiceClick = true;
   }
   // 镜头移到当前玩家
   const state = arenaPlayerStates.get(playerId);
@@ -2345,24 +2351,39 @@ function arenaOnTurnStart(playerId) {
 
 function arenaOnDiceResult(playerId, value, modifier) {
   ArenaSFX.diceRoll();
-  arenaDiceValue = value;
-  arenaJumpQuota = value;
-  arenaShowPopup('🎲 ' + value, '#ffd700');
-  if (arenaIsMyTurn) {
-    // 将玩家放到当前平台
-    const state = arenaPlayerStates.get(arenaLocalPlayerId);
-    if (state) {
-      const platIdx = state.platformIndex - 1;
-      if (arenaRacetrack[platIdx]) {
-        const tc = arenaRacetrack[platIdx].getTopCenter();
-        player.x = tc.x;
-        player.y = tc.y;
-        player.onPlatform = platIdx;
-        targetCamX = tc.x - W / 2;
-        targetCamY = tc.y - H / 2 + 80;
+  arenaWaitingForDiceClick = false;
+
+  // 骰子滚动动画
+  arenaDiceAnimating = true;
+  let ticks = 0;
+  const totalTicks = 15;
+  if (arenaDiceAnimTimer) clearInterval(arenaDiceAnimTimer);
+  arenaDiceAnimTimer = setInterval(() => {
+    arenaDiceAnimValue = Math.floor(Math.random() * 6) + 1;
+    ticks++;
+    if (ticks >= totalTicks) {
+      clearInterval(arenaDiceAnimTimer);
+      arenaDiceAnimTimer = null;
+      arenaDiceAnimating = false;
+      arenaDiceValue = value;
+      arenaJumpQuota = value;
+      arenaShowPopup('🎲 ' + value, '#ffd700');
+      if (arenaIsMyTurn) {
+        const state = arenaPlayerStates.get(arenaLocalPlayerId);
+        if (state) {
+          const platIdx = state.platformIndex - 1;
+          if (arenaRacetrack[platIdx]) {
+            const tc = arenaRacetrack[platIdx].getTopCenter();
+            player.x = tc.x;
+            player.y = tc.y;
+            player.onPlatform = platIdx;
+            targetCamX = tc.x - W / 2;
+            targetCamY = tc.y - H / 2 + 80;
+          }
+        }
       }
     }
-  }
+  }, 80);
 }
 
 function arenaOnLandResult(playerId, success, newIndex, quotaLeft) {
@@ -2422,8 +2443,30 @@ function arenaOnEventEffect(event, affectedPlayers) {
       }
     }
     const state = arenaPlayerStates.get(eff.playerId);
-    if (state && eff.newIndex !== undefined) state.platformIndex = eff.newIndex;
-    if (state && eff.skipTurns !== undefined) state.skipTurns = eff.skipTurns;
+    if (state) {
+      if (eff.newIndex !== undefined) state.platformIndex = eff.newIndex;
+      if (eff.skipTurns !== undefined) state.skipTurns = eff.skipTurns;
+      // 监狱：清空剩余步数
+      if (eff.clearQuota && eff.playerId === arenaLocalPlayerId) {
+        arenaJumpQuota = 0;
+      }
+      // 医院：增加步数
+      if (eff.bonusQuota && eff.playerId === arenaLocalPlayerId) {
+        arenaJumpQuota += eff.bonusQuota;
+      }
+    }
+    // 位置变化时更新本地玩家视觉
+    if (eff.newIndex !== undefined && eff.playerId === arenaLocalPlayerId && player) {
+      const plat = arenaRacetrack[eff.newIndex - 1];
+      if (plat) {
+        const tc = plat.getTopCenter();
+        player.x = tc.x;
+        player.y = tc.y;
+        player.onPlatform = eff.newIndex - 1;
+        targetCamX = tc.x - W / 2;
+        targetCamY = tc.y - H / 2 + 80;
+      }
+    }
   }
 }
 
@@ -2501,7 +2544,7 @@ function arenaShowRankScreen(rankings) {
 // === 竞技模式：跳跃处理 ===
 
 function arenaStartCharge() {
-  if (!arenaIsMyTurn || arenaJumpQuota <= 0 || jumpAnim || charging || falling || slipping || fallToBase) return;
+  if (!arenaIsMyTurn || arenaJumpQuota <= 0 || jumpAnim || charging || falling || slipping || fallToBase || arenaWaitingForDiceClick || arenaDiceAnimating) return;
   charging = true;
   chargeStart = Date.now();
 }
@@ -2525,11 +2568,6 @@ function arenaReleaseCharge() {
   arenaNet.send({ type: 'jump', platformIndex: currentIdx, chargePower: power });
 
   SFX.jump();
-  const dist = calculateJumpDistance(power, MIN_JUMP, MAX_JUMP);
-  const distRatio = (dist - MIN_JUMP) / (MAX_JUMP - MIN_JUMP);
-  const jumpH = MIN_JUMP_HEIGHT + distRatio * (MAX_JUMP_HEIGHT - MIN_JUMP_HEIGHT);
-  const jumpDur = 300 + distRatio * (JUMP_DURATION - 300);
-
   const nextPlat = arenaRacetrack[nextIdx];
   const nextCenter = nextPlat.getTopCenter();
   let aimX = nextCenter.x, aimY = nextCenter.y;
@@ -2537,11 +2575,19 @@ function arenaReleaseCharge() {
     const moveDir = Math.cos(nextPlat.movePhase);
     aimX += moveDir * nextPlat.moveRange * 0.35;
   }
+
+  // 计算跳跃距离和方向 — 始终朝向下一个平台
   const dx = aimX - player.x;
   const dy = aimY - player.y;
-  const dirLen = Math.sqrt(dx * dx + dy * dy);
-  const nx = dirLen > 0 ? dx / dirLen : 0;
-  const ny = dirLen > 0 ? dy / dirLen : -1;
+  const realDist = Math.sqrt(dx * dx + dy * dy);
+  const dist = calculateJumpDistance(power, MIN_JUMP, MAX_JUMP);
+  const distRatio = (dist - MIN_JUMP) / (MAX_JUMP - MIN_JUMP);
+  const jumpH = MIN_JUMP_HEIGHT + distRatio * (MAX_JUMP_HEIGHT - MIN_JUMP_HEIGHT);
+  const jumpDur = 300 + distRatio * (JUMP_DURATION - 300);
+
+  // 目标点：沿着当前平台到下一个平台的方向，按跳跃距离计算
+  const nx = realDist > 0 ? dx / realDist : 0;
+  const ny = realDist > 0 ? dy / realDist : -1;
 
   jumpAnim = {
     startX: player.x, startY: player.y,
@@ -2659,7 +2705,29 @@ function arenaRenderHUD() {
   ctx.fillStyle = '#fff';
   ctx.font = '13px sans-serif';
   ctx.textAlign = 'right';
-  ctx.fillText('🎲 ' + arenaDiceValue + ' | 剩余跳跃：' + arenaJumpQuota, W - 10, barY + barH + 16);
+  if (arenaDiceAnimating) {
+    ctx.fillText('🎲 ' + arenaDiceAnimValue + ' ...', W - 10, barY + barH + 16);
+  } else {
+    ctx.fillText('🎲 ' + arenaDiceValue + ' | 剩余跳跃：' + arenaJumpQuota, W - 10, barY + barH + 16);
+  }
+
+  // 投掷骰子按钮
+  if (arenaWaitingForDiceClick && arenaIsMyTurn && !arenaDiceAnimating) {
+    const btnW = 120, btnH = 36;
+    const btnX = W / 2 - btnW / 2, btnY = H / 2 + 30;
+    ctx.fillStyle = 'rgba(233,69,96,0.9)';
+    ctx.beginPath();
+    ctx.roundRect(btnX, btnY, btnW, btnH, 8);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('🎲 投掷骰子', W / 2, btnY + 24);
+    // 存储按钮位置供点击检测
+    arenaRollBtnRect = { x: btnX, y: btnY, w: btnW, h: btnH };
+  } else {
+    arenaRollBtnRect = null;
+  }
 
   // 回合计数
   ctx.fillStyle = '#aaa';
@@ -2723,6 +2791,18 @@ function arenaRenderHUD() {
     }
     cardX += 85;
   }
+
+  // 退出按钮（右上角）
+  const exitBtnX = W - 60, exitBtnY = barY + barH + 25;
+  ctx.fillStyle = 'rgba(85,85,85,0.7)';
+  ctx.beginPath();
+  ctx.roundRect(exitBtnX, exitBtnY, 50, 24, 6);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('退出', exitBtnX + 25, exitBtnY + 16);
+  arenaExitBtnRect = { x: exitBtnX, y: exitBtnY, w: 50, h: 24 };
 }
 
 // === 竞技模式：Ghost 渲染 ===
@@ -2818,8 +2898,10 @@ function arenaDrawStatusEffects(px, py, state) {
 
 // === 竞技模式：Mystery_Platform 视觉 ===
 
-function arenaRenderMysteryMarks(ox, oy) {
-  for (const plat of arenaRacetrack) {
+function arenaRenderMysteryMarks(ox, oy, maxVisibleIdx) {
+  for (let i = 0; i < arenaRacetrack.length; i++) {
+    if (i > maxVisibleIdx) break;
+    const plat = arenaRacetrack[i];
     if (!plat.isMystery || plat.collapsed) continue;
     const tc = plat.getTopCenter();
     const mx = tc.x - ox, my = tc.y - oy;
@@ -2875,8 +2957,8 @@ function arenaUpdate(dt) {
     }
   }
 
-  // 跟随移动平台
-  if (!jumpAnim && !charging && player && arenaMode) {
+  // 跟随移动平台（包括蓄力期间）
+  if (!jumpAnim && player && arenaMode) {
     const curPlat = arenaRacetrack[player.onPlatform];
     if (curPlat && curPlat.moving && curPlat.moveDeltaX) {
       player.x += curPlat.moveDeltaX;
@@ -2897,10 +2979,18 @@ function arenaRender() {
   ctx.fillRect(0, 0, W, H);
   const ox = cameraX + shakeX, oy = cameraY + shakeY;
 
-  const sorted = [...arenaRacetrack].sort((a, b) => a.y - b.y);
+  // 只渲染到最靠前玩家 +3 个平台（逐步出现）
+  let maxVisibleIdx = 0;
+  for (const [pid, state] of arenaPlayerStates) {
+    if (state.platformIndex - 1 > maxVisibleIdx) maxVisibleIdx = state.platformIndex - 1;
+  }
+  maxVisibleIdx = Math.min(maxVisibleIdx + 3, arenaRacetrack.length - 1);
+
+  const visible = arenaRacetrack.filter((p, i) => i <= maxVisibleIdx);
+  const sorted = [...visible].sort((a, b) => a.y - b.y);
   for (const p of sorted) p.draw(ox, oy);
 
-  arenaRenderMysteryMarks(ox, oy);
+  arenaRenderMysteryMarks(ox, oy, maxVisibleIdx);
   arenaRenderGhosts(ox, oy);
 
   for (const p of particles) {
@@ -2935,9 +3025,35 @@ releaseCharge = function() {
 // === 竞技模式：道具栏点击 ===
 
 canvas.addEventListener('click', (e) => {
-  if (!arenaMode || !arenaIsMyTurn) return;
+  if (!arenaMode) return;
   const rect = canvas.getBoundingClientRect();
   const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+
+  // 投掷骰子按钮
+  if (arenaRollBtnRect && arenaWaitingForDiceClick && arenaIsMyTurn) {
+    const b = arenaRollBtnRect;
+    if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) {
+      arenaWaitingForDiceClick = false;
+      arenaNet.send({ type: 'roll_dice' });
+      return;
+    }
+  }
+
+  // 退出按钮
+  if (arenaExitBtnRect) {
+    const b = arenaExitBtnRect;
+    if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) {
+      if (confirm('确定退出游戏？')) {
+        if (arenaNet) arenaNet.disconnect();
+        arenaMode = false;
+        gameRunning = false;
+        showOverlay(false);
+      }
+      return;
+    }
+  }
+
+  if (!arenaIsMyTurn) return;
   const localState = arenaPlayerStates.get(arenaLocalPlayerId);
   if (!localState) return;
   const itemY = H - 50;
