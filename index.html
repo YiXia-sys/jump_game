@@ -1465,9 +1465,43 @@ function releaseCharge() {
   startJump(power);
 }
 
-canvas.addEventListener('mousedown', e => { e.preventDefault(); startCharge(); });
+canvas.addEventListener('mousedown', e => {
+  e.preventDefault();
+  if (arenaMode) {
+    const rect = canvas.getBoundingClientRect();
+    arenaLastPointerX = e.clientX - rect.left;
+    arenaLastPointerY = e.clientY - rect.top;
+    // 投掷骰子按钮
+    if (arenaRollBtnRect && arenaWaitingForDiceClick && arenaIsMyTurn) {
+      const b = arenaRollBtnRect;
+      if (arenaLastPointerX >= b.x && arenaLastPointerX <= b.x + b.w && arenaLastPointerY >= b.y && arenaLastPointerY <= b.y + b.h) {
+        arenaWaitingForDiceClick = false;
+        arenaNet.send({ type: 'roll_dice' });
+        return;
+      }
+    }
+  }
+  startCharge();
+});
 canvas.addEventListener('mouseup', e => { e.preventDefault(); releaseCharge(); });
-canvas.addEventListener('touchstart', e => { e.preventDefault(); startCharge(); });
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (arenaMode && e.touches[0]) {
+    const rect = canvas.getBoundingClientRect();
+    arenaLastPointerX = e.touches[0].clientX - rect.left;
+    arenaLastPointerY = e.touches[0].clientY - rect.top;
+    // 投掷骰子按钮
+    if (arenaRollBtnRect && arenaWaitingForDiceClick && arenaIsMyTurn) {
+      const b = arenaRollBtnRect;
+      if (arenaLastPointerX >= b.x && arenaLastPointerX <= b.x + b.w && arenaLastPointerY >= b.y && arenaLastPointerY <= b.y + b.h) {
+        arenaWaitingForDiceClick = false;
+        arenaNet.send({ type: 'roll_dice' });
+        return;
+      }
+    }
+  }
+  startCharge();
+});
 canvas.addEventListener('touchend', e => { e.preventDefault(); releaseCharge(); });
 
 // === 跳跃系统 ===
@@ -2052,8 +2086,11 @@ let arenaWaitingForDiceClick = false;
 let arenaDiceAnimating = false;
 let arenaDiceAnimValue = 1;
 let arenaDiceAnimTimer = null;
+let arenaDiceShowResult = 0;
 let arenaRollBtnRect = null;
 let arenaExitBtnRect = null;
+let arenaLastPointerX = null;
+let arenaLastPointerY = null;
 let arenaGhosts = [];
 let arenaEventPopups = [];
 let arenaServerUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (location.pathname.replace(/\/[^/]*$/, '/'));
@@ -2367,6 +2404,7 @@ function arenaOnDiceResult(playerId, value, modifier) {
       arenaDiceAnimating = false;
       arenaDiceValue = value;
       arenaJumpQuota = value;
+      arenaDiceShowResult = 90; // 约1.5秒展示结果
       arenaShowPopup('🎲 ' + value, '#ffd700');
       if (arenaIsMyTurn) {
         const state = arenaPlayerStates.get(arenaLocalPlayerId);
@@ -2545,6 +2583,31 @@ function arenaShowRankScreen(rankings) {
 
 function arenaStartCharge() {
   if (!arenaIsMyTurn || arenaJumpQuota <= 0 || jumpAnim || charging || falling || slipping || fallToBase || arenaWaitingForDiceClick || arenaDiceAnimating) return;
+
+  // 检查是否点击了道具栏区域（阻止蓄力）
+  if (arenaLastPointerX !== null) {
+    const localState = arenaPlayerStates.get(arenaLocalPlayerId);
+    if (localState) {
+      const itemY = H - 50;
+      for (let i = 0; i < 2; i++) {
+        const ix = W - 90 + i * 42;
+        if (arenaLastPointerX >= ix && arenaLastPointerX <= ix + 38 && arenaLastPointerY >= itemY && arenaLastPointerY <= itemY + 38) {
+          if (localState.items[i]) {
+            arenaUseItem(localState.items[i]);
+            return;
+          }
+        }
+      }
+    }
+    // 检查退出按钮
+    if (arenaExitBtnRect) {
+      const b = arenaExitBtnRect;
+      if (arenaLastPointerX >= b.x && arenaLastPointerX <= b.x + b.w && arenaLastPointerY >= b.y && arenaLastPointerY <= b.y + b.h) {
+        return;
+      }
+    }
+  }
+
   charging = true;
   chargeStart = Date.now();
 }
@@ -2612,6 +2675,13 @@ function arenaHandleLanding() {
     spawnParticles(player.x, player.y, false);
     targetCamX = player.x - W / 2;
     targetCamY = player.y - H / 2 + 80;
+    // 落地后停止缩放平台
+    if (targetPlat.shrinking) targetPlat.shrinking = false;
+    // 激活限时平台倒计时
+    if (targetPlat.timed && !targetPlat.timerActive) {
+      targetPlat.timerActive = true;
+      targetPlat.timerStart = Date.now();
+    }
   } else {
     SFX.hurt();
     // 回到原平台
@@ -2723,10 +2793,58 @@ function arenaRenderHUD() {
     ctx.font = 'bold 16px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('🎲 投掷骰子', W / 2, btnY + 24);
-    // 存储按钮位置供点击检测
     arenaRollBtnRect = { x: btnX, y: btnY, w: btnW, h: btnH };
   } else {
     arenaRollBtnRect = null;
+  }
+
+  // 骰子滚动动画
+  if (arenaDiceAnimating) {
+    const diceSize = 60;
+    const dx = W / 2 - diceSize / 2;
+    const dy = H / 2 - diceSize / 2 - 20;
+    const bounce = Math.abs(Math.sin(Date.now() / 80)) * 10;
+    const rot = (Date.now() / 50) % (Math.PI * 2);
+    ctx.save();
+    ctx.translate(W / 2, H / 2 - 20 - bounce);
+    ctx.rotate(rot);
+    // 骰子背景
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.roundRect(-diceSize / 2, -diceSize / 2, diceSize, diceSize, 8);
+    ctx.fill();
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(-diceSize / 2, -diceSize / 2, diceSize, diceSize, 8);
+    ctx.stroke();
+    // 骰子点数
+    ctx.fillStyle = '#333';
+    arenaDrawDiceDots(0, 0, diceSize, arenaDiceAnimValue);
+    ctx.restore();
+  }
+
+  // 骰子结果展示（掷完后短暂显示）
+  if (arenaDiceShowResult > 0) {
+    const diceSize = 60;
+    const alpha = Math.min(1, arenaDiceShowResult / 30);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(W / 2, H / 2 - 20);
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.roundRect(-diceSize / 2, -diceSize / 2, diceSize, diceSize, 8);
+    ctx.fill();
+    ctx.strokeStyle = '#e94560';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(-diceSize / 2, -diceSize / 2, diceSize, diceSize, 8);
+    ctx.stroke();
+    ctx.fillStyle = '#e94560';
+    arenaDrawDiceDots(0, 0, diceSize, arenaDiceValue);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+    arenaDiceShowResult--;
   }
 
   // 回合计数
@@ -2803,6 +2921,26 @@ function arenaRenderHUD() {
   ctx.textAlign = 'center';
   ctx.fillText('退出', exitBtnX + 25, exitBtnY + 16);
   arenaExitBtnRect = { x: exitBtnX, y: exitBtnY, w: 50, h: 24 };
+}
+
+// 绘制骰子点数
+function arenaDrawDiceDots(cx, cy, size, value) {
+  const r = size * 0.07;
+  const off = size * 0.25;
+  const dots = {
+    1: [[0, 0]],
+    2: [[-off, -off], [off, off]],
+    3: [[-off, -off], [0, 0], [off, off]],
+    4: [[-off, -off], [off, -off], [-off, off], [off, off]],
+    5: [[-off, -off], [off, -off], [0, 0], [-off, off], [off, off]],
+    6: [[-off, -off], [off, -off], [-off, 0], [off, 0], [-off, off], [off, off]]
+  };
+  const positions = dots[value] || dots[1];
+  for (const [dx, dy] of positions) {
+    ctx.beginPath();
+    ctx.arc(cx + dx, cy + dy, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 // === 竞技模式：Ghost 渲染 ===
@@ -3029,16 +3167,6 @@ canvas.addEventListener('click', (e) => {
   const rect = canvas.getBoundingClientRect();
   const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
 
-  // 投掷骰子按钮
-  if (arenaRollBtnRect && arenaWaitingForDiceClick && arenaIsMyTurn) {
-    const b = arenaRollBtnRect;
-    if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) {
-      arenaWaitingForDiceClick = false;
-      arenaNet.send({ type: 'roll_dice' });
-      return;
-    }
-  }
-
   // 退出按钮
   if (arenaExitBtnRect) {
     const b = arenaExitBtnRect;
@@ -3050,17 +3178,6 @@ canvas.addEventListener('click', (e) => {
         showOverlay(false);
       }
       return;
-    }
-  }
-
-  if (!arenaIsMyTurn) return;
-  const localState = arenaPlayerStates.get(arenaLocalPlayerId);
-  if (!localState) return;
-  const itemY = H - 50;
-  for (let i = 0; i < 2; i++) {
-    const ix = W - 90 + i * 42;
-    if (cx >= ix && cx <= ix + 38 && cy >= itemY && cy <= itemY + 38) {
-      if (localState.items[i]) arenaUseItem(localState.items[i]);
     }
   }
 });
