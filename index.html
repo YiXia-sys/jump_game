@@ -887,7 +887,7 @@ async function showSkinStore() {
   `;
   const basicGrid = document.getElementById('skinGridBasic');
   const advGrid = document.getElementById('skinGridAdv');
-  SKIN_REGISTRY.forEach(skin => {
+  [...SKIN_REGISTRY].sort((a, b) => a.price - b.price).forEach(skin => {
     const grid = skin.type === 'advanced' ? advGrid : basicGrid;
     const state = getSkinButtonState(skin.skinId);
     const card = document.createElement('div');
