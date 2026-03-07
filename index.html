@@ -248,21 +248,22 @@ let testMode = false;
 
 // === 背景主题系统 ===
 const BG_THEMES = [
-  { id: 'night', name: '夜空', bg: '#1a1a2e', ground: '#16213e', accent: '#0f3460', particle: '#334' },
-  { id: 'desert', name: '黄土地', bg: '#c2956b', ground: '#a67c52', accent: '#8b6914', particle: '#d4a' },
-  { id: 'ocean', name: '海面', bg: '#1565c0', ground: '#0d47a1', accent: '#0277bd', particle: '#048' },
-  { id: 'asphalt', name: '沥青路', bg: '#37474f', ground: '#263238', accent: '#455a64', particle: '#556' },
-  { id: 'sand', name: '沙地', bg: '#e8c97a', ground: '#d4a843', accent: '#c49b3f', particle: '#ba8' },
-  { id: 'paved', name: '铺装地面', bg: '#78909c', ground: '#607d8b', accent: '#546e7a', particle: '#8a9' },
-  { id: 'wood', name: '木地板', bg: '#8d6e63', ground: '#6d4c41', accent: '#5d4037', particle: '#a87' },
-  { id: 'grass', name: '草地', bg: '#388e3c', ground: '#2e7d32', accent: '#1b5e20', particle: '#4a6' },
-  { id: 'snow', name: '雪地', bg: '#b0bec5', ground: '#90a4ae', accent: '#78909c', particle: '#cde' },
-  { id: 'lava', name: '熔岩', bg: '#bf360c', ground: '#8b1a00', accent: '#d84315', particle: '#f64' },
-  { id: 'space', name: '太空', bg: '#0d0d2b', ground: '#1a0a3e', accent: '#2d1b69', particle: '#429' },
-  { id: 'cherry', name: '樱花', bg: '#f8bbd0', ground: '#f48fb1', accent: '#ec407a', particle: '#fce' },
+  { id: 'night', name: '夜空', bg: '#2b2b44', ground: '#232340', accent: '#1e2d4a', particle: '#445' },
+  { id: 'desert', name: '黄土地', bg: '#c4ad8a', ground: '#b09878', accent: '#9a8568', particle: '#b9a' },
+  { id: 'ocean', name: '海面', bg: '#5b8fad', ground: '#4a7a96', accent: '#3d6d88', particle: '#6a9' },
+  { id: 'asphalt', name: '沥青路', bg: '#5a6670', ground: '#4a5660', accent: '#5e6e78', particle: '#778' },
+  { id: 'sand', name: '沙地', bg: '#d8c89a', ground: '#c8b888', accent: '#b8a878', particle: '#cba' },
+  { id: 'paved', name: '铺装地面', bg: '#8a9aa4', ground: '#7a8a94', accent: '#6e7e88', particle: '#9ab' },
+  { id: 'wood', name: '木地板', bg: '#9e8878', ground: '#8a7468', accent: '#7a6458', particle: '#b98' },
+  { id: 'grass', name: '草地', bg: '#6a9e6e', ground: '#5a8e5e', accent: '#4a7e4e', particle: '#7b8' },
+  { id: 'snow', name: '雪地', bg: '#c8d4da', ground: '#b0bcc4', accent: '#98a8b2', particle: '#dde' },
+  { id: 'lava', name: '熔岩', bg: '#8e5040', ground: '#6e3a2a', accent: '#a06048', particle: '#c86' },
+  { id: 'space', name: '太空', bg: '#1e1e3a', ground: '#28204a', accent: '#3a2d5e', particle: '#548' },
+  { id: 'cherry', name: '樱花', bg: '#e8c8d4', ground: '#d8b0c0', accent: '#c898aa', particle: '#ecd' },
 ];
 const BG_PREF_KEY = 'jumpGame_bgTheme';
 let currentBgTheme = null;
+let bgDecorations = [];
 
 function getSelectedBgId() { return localStorage.getItem(BG_PREF_KEY) || 'random'; }
 function setSelectedBgId(id) { localStorage.setItem(BG_PREF_KEY, id); }
@@ -273,6 +274,207 @@ function pickBgTheme() {
     currentBgTheme = BG_THEMES[Math.floor(Math.random() * BG_THEMES.length)];
   } else {
     currentBgTheme = BG_THEMES.find(t => t.id === pref) || BG_THEMES[0];
+  }
+  initBgDecorations();
+}
+
+function initBgDecorations() {
+  bgDecorations = [];
+  if (!currentBgTheme) return;
+  const id = currentBgTheme.id;
+  if (id === 'night') {
+    // 星星
+    for (let i = 0; i < 60; i++) bgDecorations.push({ type: 'star', x: Math.random() * W, y: Math.random() * H * 0.7, size: 1 + Math.random() * 2, twinkle: Math.random() * Math.PI * 2, speed: 0.5 + Math.random() * 1.5 });
+    // 偶尔流星
+    bgDecorations.push({ type: 'shootingStar', x: -50, y: 0, active: false, timer: 3000 + Math.random() * 5000, vx: 4, vy: 2, trail: [] });
+  } else if (id === 'desert') {
+    for (let i = 0; i < 3; i++) bgDecorations.push({ type: 'tumbleweed', x: Math.random() * W, y: H * 0.75 + Math.random() * H * 0.15, r: 8 + Math.random() * 6, speed: 0.3 + Math.random() * 0.4, rot: 0 });
+    for (let i = 0; i < 20; i++) bgDecorations.push({ type: 'dustParticle', x: Math.random() * W, y: H * 0.5 + Math.random() * H * 0.4, size: 1 + Math.random() * 2, speed: 0.2 + Math.random() * 0.3, alpha: 0.2 + Math.random() * 0.3 });
+  } else if (id === 'ocean') {
+    for (let i = 0; i < 4; i++) bgDecorations.push({ type: 'fish', x: Math.random() * W, y: H * 0.5 + Math.random() * H * 0.35, size: 6 + Math.random() * 6, speed: 0.3 + Math.random() * 0.5, dir: Math.random() > 0.5 ? 1 : -1, color: ['#f4a460','#ffd700','#87ceeb','#ff8c69'][Math.floor(Math.random()*4)] });
+    for (let i = 0; i < 2; i++) bgDecorations.push({ type: 'duck', x: Math.random() * W, y: H * 0.35 + Math.random() * 30, speed: 0.15 + Math.random() * 0.2, dir: Math.random() > 0.5 ? 1 : -1, bob: Math.random() * Math.PI * 2 });
+    for (let i = 0; i < 15; i++) bgDecorations.push({ type: 'bubble', x: Math.random() * W, y: H * 0.6 + Math.random() * H * 0.35, size: 2 + Math.random() * 3, speed: 0.2 + Math.random() * 0.3, alpha: 0.15 + Math.random() * 0.2 });
+  } else if (id === 'asphalt') {
+    for (let i = 0; i < 5; i++) bgDecorations.push({ type: 'puddle', x: 30 + Math.random() * (W - 60), y: H * 0.7 + Math.random() * H * 0.2, w: 20 + Math.random() * 30, h: 4 + Math.random() * 4 });
+    for (let i = 0; i < 3; i++) bgDecorations.push({ type: 'tireMark', x: Math.random() * W, y: H * 0.65 + Math.random() * H * 0.25, len: 40 + Math.random() * 60, angle: -0.1 + Math.random() * 0.2 });
+  } else if (id === 'sand') {
+    for (let i = 0; i < 25; i++) bgDecorations.push({ type: 'sandGrain', x: Math.random() * W, y: Math.random() * H, size: 1 + Math.random(), speed: 0.5 + Math.random() * 0.8, alpha: 0.15 + Math.random() * 0.2 });
+  } else if (id === 'paved') {
+    for (let i = 0; i < 12; i++) bgDecorations.push({ type: 'leaf', x: Math.random() * W, y: Math.random() * H, size: 4 + Math.random() * 4, rot: Math.random() * Math.PI * 2, speed: 0.1 + Math.random() * 0.2, sway: Math.random() * Math.PI * 2, color: ['#c87','#b96','#a85','#d98'][Math.floor(Math.random()*4)] });
+  } else if (id === 'wood') {
+    for (let i = 0; i < 8; i++) bgDecorations.push({ type: 'woodGrain', x: Math.random() * W, y: Math.random() * H, len: 30 + Math.random() * 50, curve: Math.random() * 0.3 });
+  } else if (id === 'grass') {
+    for (let i = 0; i < 5; i++) bgDecorations.push({ type: 'butterfly', x: Math.random() * W, y: H * 0.2 + Math.random() * H * 0.5, wingPhase: Math.random() * Math.PI * 2, vx: 0.2 + Math.random() * 0.3, vy: 0, dir: Math.random() > 0.5 ? 1 : -1, color: ['#e8a','#8ce','#ec8','#ae8'][Math.floor(Math.random()*4)] });
+    for (let i = 0; i < 8; i++) bgDecorations.push({ type: 'dandelion', x: Math.random() * W, y: Math.random() * H * 0.6, size: 2, speed: 0.05 + Math.random() * 0.1, sway: Math.random() * Math.PI * 2 });
+  } else if (id === 'snow') {
+    for (let i = 0; i < 40; i++) bgDecorations.push({ type: 'snowflake', x: Math.random() * W, y: Math.random() * H, size: 1.5 + Math.random() * 3, speed: 0.2 + Math.random() * 0.4, sway: Math.random() * Math.PI * 2, swaySpeed: 0.5 + Math.random() * 1 });
+  } else if (id === 'lava') {
+    for (let i = 0; i < 20; i++) bgDecorations.push({ type: 'ember', x: Math.random() * W, y: H * 0.6 + Math.random() * H * 0.4, size: 1.5 + Math.random() * 2.5, speed: 0.3 + Math.random() * 0.5, alpha: 0.4 + Math.random() * 0.4, sway: Math.random() * Math.PI * 2 });
+    for (let i = 0; i < 6; i++) bgDecorations.push({ type: 'smoke', x: Math.random() * W, y: H * 0.7 + Math.random() * H * 0.2, size: 8 + Math.random() * 12, speed: 0.1 + Math.random() * 0.15, alpha: 0.08 + Math.random() * 0.08 });
+  } else if (id === 'space') {
+    for (let i = 0; i < 80; i++) bgDecorations.push({ type: 'distantStar', x: Math.random() * W, y: Math.random() * H, size: 0.5 + Math.random() * 1.5, twinkle: Math.random() * Math.PI * 2, speed: 0.3 + Math.random() * 1 });
+    bgDecorations.push({ type: 'nebula', x: W * 0.3 + Math.random() * W * 0.4, y: H * 0.2 + Math.random() * H * 0.3, size: 60 + Math.random() * 40, color: ['rgba(100,60,160,','rgba(60,80,160,','rgba(160,60,100,'][Math.floor(Math.random()*3)], pulse: 0 });
+  } else if (id === 'cherry') {
+    for (let i = 0; i < 30; i++) bgDecorations.push({ type: 'petal', x: Math.random() * W, y: Math.random() * H, size: 3 + Math.random() * 3, rot: Math.random() * Math.PI * 2, speed: 0.15 + Math.random() * 0.25, sway: Math.random() * Math.PI * 2, swayAmp: 0.3 + Math.random() * 0.4 });
+    // 樱花树剪影
+    bgDecorations.push({ type: 'cherryTree', x: W * 0.1, baseY: H * 0.85 });
+    bgDecorations.push({ type: 'cherryTree', x: W * 0.85, baseY: H * 0.88 });
+  }
+}
+
+function updateBgDecorations(dt) {
+  const s = dt / 16.67; // normalize to ~60fps
+  for (const d of bgDecorations) {
+    if (d.type === 'star') {
+      d.twinkle += d.speed * 0.02 * s;
+    } else if (d.type === 'shootingStar') {
+      if (!d.active) { d.timer -= dt; if (d.timer <= 0) { d.active = true; d.x = Math.random() * W * 0.5; d.y = Math.random() * H * 0.3; d.trail = []; } }
+      else { d.x += d.vx * s; d.y += d.vy * s; d.trail.push({x:d.x,y:d.y}); if (d.trail.length > 12) d.trail.shift(); if (d.x > W + 50) { d.active = false; d.timer = 4000 + Math.random() * 6000; } }
+    } else if (d.type === 'tumbleweed') {
+      d.x += d.speed * s; d.rot += 0.03 * s; if (d.x > W + 20) d.x = -20;
+    } else if (d.type === 'dustParticle') {
+      d.x += d.speed * s; if (d.x > W) d.x = 0;
+    } else if (d.type === 'fish') {
+      d.x += d.speed * d.dir * s; if (d.x > W + 20) { d.x = -20; d.dir = 1; } if (d.x < -20) { d.x = W + 20; d.dir = -1; }
+    } else if (d.type === 'duck') {
+      d.x += d.speed * d.dir * s; d.bob += 0.03 * s; if (d.x > W + 20) { d.x = -20; d.dir = 1; } if (d.x < -20) { d.x = W + 20; d.dir = -1; }
+    } else if (d.type === 'bubble') {
+      d.y -= d.speed * s; if (d.y < H * 0.3) { d.y = H * 0.9 + Math.random() * H * 0.1; d.x = Math.random() * W; }
+    } else if (d.type === 'sandGrain') {
+      d.x += d.speed * s; d.y -= 0.05 * s; if (d.x > W) d.x = 0; if (d.y < 0) d.y = H;
+    } else if (d.type === 'leaf') {
+      d.y += d.speed * s; d.sway += 0.02 * s; d.x += Math.sin(d.sway) * 0.3; d.rot += 0.01 * s; if (d.y > H + 10) { d.y = -10; d.x = Math.random() * W; }
+    } else if (d.type === 'butterfly') {
+      d.wingPhase += 0.08 * s; d.x += d.vx * d.dir * s; d.y += Math.sin(d.wingPhase * 0.5) * 0.3; if (d.x > W + 20 || d.x < -20) d.dir *= -1;
+    } else if (d.type === 'dandelion') {
+      d.y -= d.speed * s; d.sway += 0.015 * s; d.x += Math.sin(d.sway) * 0.2; if (d.y < -10) { d.y = H * 0.6; d.x = Math.random() * W; }
+    } else if (d.type === 'snowflake') {
+      d.y += d.speed * s; d.sway += d.swaySpeed * 0.02 * s; d.x += Math.sin(d.sway) * 0.4; if (d.y > H + 5) { d.y = -5; d.x = Math.random() * W; }
+    } else if (d.type === 'ember') {
+      d.y -= d.speed * s; d.sway += 0.03 * s; d.x += Math.sin(d.sway) * 0.5; if (d.y < H * 0.1) { d.y = H * 0.8 + Math.random() * H * 0.2; d.x = Math.random() * W; }
+    } else if (d.type === 'smoke') {
+      d.y -= d.speed * s; d.size += 0.02 * s; if (d.y < H * 0.2) { d.y = H * 0.8 + Math.random() * H * 0.15; d.size = 8 + Math.random() * 12; d.x = Math.random() * W; }
+    } else if (d.type === 'distantStar') {
+      d.twinkle += d.speed * 0.02 * s;
+    } else if (d.type === 'nebula') {
+      d.pulse += 0.005 * s;
+    } else if (d.type === 'petal') {
+      d.y += d.speed * s; d.sway += 0.025 * s; d.x += Math.sin(d.sway) * d.swayAmp; d.rot += 0.02 * s; if (d.y > H + 10) { d.y = -10; d.x = Math.random() * W; }
+    }
+  }
+}
+
+function drawBgDecorations() {
+  for (const d of bgDecorations) {
+    if (d.type === 'star') {
+      const a = 0.3 + 0.5 * Math.abs(Math.sin(d.twinkle));
+      ctx.fillStyle = `rgba(220,220,200,${a})`;
+      ctx.beginPath(); ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2); ctx.fill();
+    } else if (d.type === 'shootingStar' && d.active) {
+      for (let i = 0; i < d.trail.length; i++) {
+        const a = (i / d.trail.length) * 0.6;
+        ctx.fillStyle = `rgba(240,240,200,${a})`;
+        ctx.beginPath(); ctx.arc(d.trail[i].x, d.trail[i].y, 1.5 * (i / d.trail.length), 0, Math.PI * 2); ctx.fill();
+      }
+    } else if (d.type === 'tumbleweed') {
+      ctx.save(); ctx.translate(d.x, d.y); ctx.rotate(d.rot);
+      ctx.strokeStyle = 'rgba(160,130,80,0.4)'; ctx.lineWidth = 1;
+      for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; ctx.beginPath(); ctx.arc(Math.cos(a)*d.r*0.3, Math.sin(a)*d.r*0.3, d.r*0.5, 0, Math.PI*2); ctx.stroke(); }
+      ctx.restore();
+    } else if (d.type === 'dustParticle') {
+      ctx.fillStyle = `rgba(200,180,140,${d.alpha})`;
+      ctx.beginPath(); ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2); ctx.fill();
+    } else if (d.type === 'fish') {
+      ctx.save(); ctx.translate(d.x, d.y); if (d.dir < 0) ctx.scale(-1, 1);
+      ctx.fillStyle = d.color; ctx.globalAlpha = 0.5;
+      ctx.beginPath(); ctx.ellipse(0, 0, d.size, d.size * 0.45, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-d.size, 0); ctx.lineTo(-d.size - 4, -3); ctx.lineTo(-d.size - 4, 3); ctx.fill();
+      ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(d.size * 0.5, -1, 1, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1; ctx.restore();
+    } else if (d.type === 'duck') {
+      const by = Math.sin(d.bob) * 2;
+      ctx.save(); ctx.translate(d.x, d.y + by); if (d.dir < 0) ctx.scale(-1, 1);
+      ctx.fillStyle = 'rgba(240,210,80,0.6)';
+      ctx.beginPath(); ctx.ellipse(0, 0, 8, 5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(7, -4, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(220,140,40,0.7)';
+      ctx.beginPath(); ctx.moveTo(11, -4); ctx.lineTo(14, -3); ctx.lineTo(11, -2); ctx.fill();
+      ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(9, -5, 0.8, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    } else if (d.type === 'bubble') {
+      ctx.strokeStyle = `rgba(200,230,255,${d.alpha})`; ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2); ctx.stroke();
+    } else if (d.type === 'puddle') {
+      ctx.fillStyle = 'rgba(100,130,160,0.15)';
+      ctx.beginPath(); ctx.ellipse(d.x, d.y, d.w, d.h, 0, 0, Math.PI * 2); ctx.fill();
+    } else if (d.type === 'tireMark') {
+      ctx.save(); ctx.translate(d.x, d.y); ctx.rotate(d.angle);
+      ctx.strokeStyle = 'rgba(40,40,40,0.12)'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(d.len, 0); ctx.stroke();
+      ctx.restore();
+    } else if (d.type === 'sandGrain') {
+      ctx.fillStyle = `rgba(180,160,120,${d.alpha})`;
+      ctx.beginPath(); ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2); ctx.fill();
+    } else if (d.type === 'leaf') {
+      ctx.save(); ctx.translate(d.x, d.y); ctx.rotate(d.rot);
+      ctx.fillStyle = d.color + '8'; // add alpha
+      ctx.beginPath(); ctx.ellipse(0, 0, d.size, d.size * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = d.color + '6'; ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.moveTo(-d.size, 0); ctx.lineTo(d.size, 0); ctx.stroke();
+      ctx.restore();
+    } else if (d.type === 'woodGrain') {
+      ctx.strokeStyle = 'rgba(100,70,50,0.1)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(d.x, d.y);
+      ctx.quadraticCurveTo(d.x + d.len * 0.5, d.y + d.curve * 20, d.x + d.len, d.y);
+      ctx.stroke();
+    } else if (d.type === 'butterfly') {
+      const wing = Math.sin(d.wingPhase) * 0.6;
+      ctx.save(); ctx.translate(d.x, d.y);
+      ctx.fillStyle = d.color + '8'; ctx.globalAlpha = 0.6;
+      ctx.beginPath(); ctx.ellipse(-3, wing * 3, 4, 6, wing, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(3, wing * 3, 4, 6, -wing, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#555'; ctx.globalAlpha = 0.5;
+      ctx.fillRect(-0.5, -2, 1, 5);
+      ctx.globalAlpha = 1; ctx.restore();
+    } else if (d.type === 'dandelion') {
+      ctx.fillStyle = 'rgba(255,255,240,0.35)';
+      ctx.beginPath(); ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,240,0.2)'; ctx.lineWidth = 0.3;
+      for (let i = 0; i < 5; i++) { const a = i * Math.PI * 2 / 5; ctx.beginPath(); ctx.moveTo(d.x, d.y); ctx.lineTo(d.x + Math.cos(a) * 4, d.y + Math.sin(a) * 4); ctx.stroke(); }
+    } else if (d.type === 'snowflake') {
+      ctx.fillStyle = 'rgba(240,245,255,0.5)';
+      ctx.beginPath(); ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2); ctx.fill();
+    } else if (d.type === 'ember') {
+      ctx.fillStyle = `rgba(255,160,60,${d.alpha * 0.6})`;
+      ctx.beginPath(); ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = `rgba(255,220,100,${d.alpha * 0.3})`;
+      ctx.beginPath(); ctx.arc(d.x, d.y, d.size * 0.5, 0, Math.PI * 2); ctx.fill();
+    } else if (d.type === 'smoke') {
+      ctx.fillStyle = `rgba(80,60,50,${d.alpha})`;
+      ctx.beginPath(); ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2); ctx.fill();
+    } else if (d.type === 'distantStar') {
+      const a = 0.2 + 0.4 * Math.abs(Math.sin(d.twinkle));
+      ctx.fillStyle = `rgba(200,210,240,${a})`;
+      ctx.beginPath(); ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2); ctx.fill();
+    } else if (d.type === 'nebula') {
+      const a = 0.06 + 0.03 * Math.sin(d.pulse);
+      ctx.fillStyle = d.color + a + ')';
+      ctx.beginPath(); ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = d.color + (a * 0.5) + ')';
+      ctx.beginPath(); ctx.arc(d.x + 20, d.y + 15, d.size * 0.6, 0, Math.PI * 2); ctx.fill();
+    } else if (d.type === 'petal') {
+      ctx.save(); ctx.translate(d.x, d.y); ctx.rotate(d.rot);
+      ctx.fillStyle = 'rgba(230,160,180,0.45)';
+      ctx.beginPath(); ctx.ellipse(0, 0, d.size, d.size * 0.6, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    } else if (d.type === 'cherryTree') {
+      ctx.fillStyle = 'rgba(80,50,60,0.2)';
+      ctx.fillRect(d.x - 3, d.baseY - 50, 6, 50);
+      ctx.fillStyle = 'rgba(200,140,160,0.18)';
+      ctx.beginPath(); ctx.arc(d.x, d.baseY - 55, 30, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(d.x - 15, d.baseY - 45, 20, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(d.x + 15, d.baseY - 45, 20, 0, Math.PI * 2); ctx.fill();
+    }
   }
 }
 
@@ -287,6 +489,8 @@ function drawGameBg() {
   grd.addColorStop(1, t.ground + '40');
   ctx.fillStyle = grd;
   ctx.fillRect(0, H * 0.7, W, H * 0.3);
+  // 绘制主题装饰
+  drawBgDecorations();
 }
 
 // === 最高分管理 ===
@@ -2624,6 +2828,8 @@ function updateCamera(dt) {
 // === 游戏主循环 ===
 
 function update(dt) {
+  // 更新背景装饰动画
+  updateBgDecorations(dt);
   // 更新所有平台（移动、缩小、限时）
   for (const p of platforms) {
     p.update(dt);
@@ -4021,6 +4227,7 @@ function arenaGameLoop(timestamp) {
 }
 
 function arenaUpdate(dt) {
+  updateBgDecorations(dt);
   for (const p of arenaRacetrack) p.update(dt);
 
   if (charging && player && arenaIsMyTurn) {
