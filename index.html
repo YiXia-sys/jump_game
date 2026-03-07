@@ -854,14 +854,36 @@ function drawSkinPreview(cvs, skin) {
 
 function showOtherGames() {
   overlay.style.display = 'flex';
+  const games = [
+    { emoji: '🐝', name: '小蜜蜂', desc: '太空射击', file: 'games/space-invaders.html' },
+    { emoji: '🐍', name: '贪吃蛇', desc: '经典吃豆', file: 'games/snake.html' },
+    { emoji: '🏓', name: '打砖块', desc: '弹球消除', file: 'games/breakout.html' },
+    { emoji: '💣', name: '扫雷', desc: '数字推理', file: 'games/minesweeper.html' },
+    { emoji: '🎮', name: '坦克大战', desc: '保卫基地', file: 'games/tank-battle.html' },
+    { emoji: '🔲', name: '俄罗斯方块', desc: '旋转消行', file: 'games/tetris.html' },
+    { emoji: '🏃', name: '跑酷闯关', desc: '无尽奔跑', file: 'games/runner.html' },
+  ];
   overlay.innerHTML = `
-    <h1 style="font-size:28px;margin-bottom:8px;">🎲 其他游戏</h1>
-    <div style="color:#aaa;font-size:15px;margin:30px 0 40px;line-height:1.8;">
-      <div style="font-size:40px;margin-bottom:12px;">🚧</div>
-      更多游戏即将推出，敬请期待...
+    <div style="width:90%;max-width:400px;text-align:center;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <button id="otherGamesBackBtn" style="padding:6px 16px;font-size:14px;border:none;border-radius:8px;background:#555;color:#fff;cursor:pointer;">← 返回</button>
+        <h2 style="font-size:22px;margin:0;">🎲 其他游戏</h2>
+        <div style="width:60px;"></div>
+      </div>
+      <div id="gameGrid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;"></div>
     </div>
-    <button id="otherGamesBackBtn" style="padding:10px 36px;font-size:15px;border:none;border-radius:8px;background:#555;color:#fff;cursor:pointer;">返回首页</button>
   `;
+  const grid = document.getElementById('gameGrid');
+  games.forEach((g, i) => {
+    const card = document.createElement('div');
+    card.style.cssText = 'background:rgba(255,255,255,0.08);border-radius:12px;padding:16px 8px;text-align:center;cursor:pointer;transition:transform 0.15s,box-shadow 0.15s;border:1px solid rgba(255,255,255,0.06);';
+    if (i === games.length - 1 && games.length % 2 === 1) card.style.gridColumn = '1 / -1';
+    card.innerHTML = `<div style="font-size:36px;margin-bottom:6px;">${g.emoji}</div><div style="color:#fff;font-size:15px;font-weight:bold;">${g.name}</div><div style="color:#aaa;font-size:12px;margin-top:2px;">${g.desc}</div>`;
+    card.addEventListener('mouseenter', () => { card.style.transform = 'scale(1.05)'; card.style.boxShadow = '0 4px 20px rgba(233,69,96,0.3)'; });
+    card.addEventListener('mouseleave', () => { card.style.transform = 'scale(1)'; card.style.boxShadow = 'none'; });
+    card.addEventListener('click', () => { window.location.href = g.file; });
+    grid.appendChild(card);
+  });
   document.getElementById('otherGamesBackBtn').addEventListener('click', function() {
     showOverlay(false);
   });

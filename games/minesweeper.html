@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>扫雷 - 跳跳游戏</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#1a1a2e; display:flex; flex-direction:column; align-items:center; height:100vh; overflow:auto; font-family:'Microsoft YaHei',sans-serif; user-select:none; color:#fff; }
+#topBar { display:flex; justify-content:space-between; align-items:center; padding:8px 12px; width:100%; max-width:500px; }
+#topBar button { padding:6px 14px; font-size:13px; border:none; border-radius:8px; background:#555; color:#fff; cursor:pointer; }
+#hud { display:flex; justify-content:space-between; align-items:center; padding:4px 12px; width:100%; max-width:500px; }
+.hud-item { font-size:14px; color:#aaa; }
+#diffBtns { display:flex; gap:6px; margin:8px 0; }
+#diffBtns button { padding:6px 16px; font-size:13px; border:none; border-radius:8px; cursor:pointer; color:#fff; transition:transform 0.1s; }
+#diffBtns button:hover { transform:scale(1.05); }
+#diffBtns button.active { box-shadow:0 0 10px rgba(233,69,96,0.5); }
+#board { display:inline-grid; gap:2px; padding:4px; background:rgba(255,255,255,0.05); border-radius:8px; }
+.cell { display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:bold; border-radius:4px; cursor:pointer; transition:transform 0.1s,background 0.2s; }
+.cell:hover { transform:scale(1.05); }
+.cell.hidden { background:rgba(255,255,255,0.12); }
+.cell.revealed { background:rgba(255,255,255,0.04); }
+.cell.mine { background:rgba(233,69,96,0.3); }
+.cell.flagged { background:rgba(251,133,0,0.2); }
+.cell.exploded { background:#e94560; animation:explode 0.3s; }
+</style>
+</head>
+<body>
+<div id="topBar">
+  <button id="backBtn">← 返回</button>
+  <div style="font-size:18px;">💣 扫雷</div>
+  <button id="resetBtn">🔄</button>
+</div>
+<div id="diffBtns">
+  <button id="easyBtn" style="background:#06d6a0;" class="active">初级</button>
+  <button id="medBtn" style="background:#fb8500;">中级</button>
+  <button id="hardBtn" style="background:#e94560;">高级</button>
+</div>
+<div id="hud">
+  <div class="hud-item" id="mineCount">💣 10</div>
+  <div class="hud-item" id="timerDisplay">⏱ 0</div>
+  <div class="hud-item" id="bestTime">🏆 --</div>
+</div>
+<div id="board"></div>
+<div id="msg" style="margin:12px;font-size:18px;min-height:30px;text-align:center;"></div>
+<script>
+const boardEl = document.getElementById('board');
+const msgEl = document.getElementById('msg');
+const mineCountEl = document.getElementById('mineCount');
+const timerEl = document.getElementById('timerDisplay');
+const bestTimeEl = document.getElementById('bestTime');
+
+const DIFFS = {
+  easy: { rows:9, cols:9, mines:10, cellSize:34 },
+  medium: { rows:16, cols:16, mines:40, cellSize:28 },
+  hard: { rows:16, cols:30, mines:99, cellSize:22 },
+};
+
+let diff = 'easy', board, rows, cols, mines, firstClick, gameOver, won, timer, timerInterval, flags;
+let revealQueue = []; // for wave animation
+
+function getBestKey() { return 'minesweeper_best_' + diff; }
+function getBest() { return parseInt(localStorage.getItem(getBestKey())) || 0; }
+function setBest(t) { const b = getBest(); if (!b || t < b) localStorage.setItem(getBestKey(), t); }
+
+function init() {
+  const d = DIFFS[diff];
+  rows = d.rows; cols = d.cols; mines = d.mines;
+  board = Array.from({length:rows}, ()=>Array.from({length:cols}, ()=>({mine:false,revealed:false,flagged:false,count:0})));
+  firstClick = true; gameOver = false; won = false; flags = 0; timer = 0;
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = null;
+  msgEl.textContent = '';
+  mineCountEl.textContent = '💣 ' + mines;
+  timerEl.textContent = '⏱ 0';
+  const best = getBest();
+  bestTimeEl.textContent = '🏆 ' + (best ? best + 's' : '--');
+  renderBoard();
+}
+
+function placeMines(safeR, safeC) {
+  let placed = 0;
+  while (placed < mines) {
+    const r = Math.floor(Math.random()*rows), c = Math.floor(Math.random()*cols);
+    if (board[r][c].mine) continue;
+    if (Math.abs(r-safeR)<=1 && Math.abs(c-safeC)<=1) continue;
+    board[r][c].mine = true; placed++;
+  }
+  // Calculate counts
+  for (let r=0;r<rows;r++) for (let c=0;c<cols;c++) {
+    if (board[r][c].mine) continue;
+    let cnt = 0;
+    for (let dr=-1;dr<=1;dr++) for (let dc=-1;dc<=1;dc++) {
+      const nr=r+dr, nc=c+dc;
+      if (nr>=0&&nr<rows&&nc>=0&&nc<cols&&board[nr][nc].mine) cnt++;
+    }
+    board[r][c].count = cnt;
+  }
+}
+
+function reveal(r, c) {
+  if (r<0||r>=rows||c<0||c>=cols) return;
+  const cell = board[r][c];
+  if (cell.revealed || cell.flagged) return;
+  cell.revealed = true;
+  revealQueue.push({r, c, time: performance.now()});
+  if (cell.count === 0 && !cell.mine) {
+    for (let dr=-1;dr<=1;dr++) for (let dc=-1;dc<=1;dc++) {
+      if (dr===0&&dc===0) continue;
+      setTimeout(() => { reveal(r+dr, c+dc); updateCell(r+dr, c+dc); }, 30);
+    }
+  }
+}
+
+function handleClick(r, c) {
+  if (gameOver) return;
+  const cell = board[r][c];
+  if (cell.flagged || cell.revealed) return;
+
+  if (firstClick) {
+    firstClick = false;
+    placeMines(r, c);
+    timerInterval = setInterval(() => { timer++; timerEl.textContent = '⏱ ' + timer; }, 1000);
+  }
+
+  if (cell.mine) {
+    cell.revealed = true;
+    gameOver = true;
+    // Show all mines
+    for (let rr=0;rr<rows;rr++) for (let cc=0;cc<cols;cc++) if(board[rr][cc].mine) board[rr][cc].revealed = true;
+    clearInterval(timerInterval);
+    renderBoard();
+    const el = document.querySelector(`[data-r="${r}"][data-c="${c}"]`);
+    if (el) el.classList.add('exploded');
+    msgEl.textContent = '💥 踩雷了!';
+    msgEl.style.color = '#e94560';
+    return;
+  }
+
+  reveal(r, c);
+  renderBoard();
+  checkWin();
+}
+
+function handleFlag(r, c) {
+  if (gameOver) return;
+  const cell = board[r][c];
+  if (cell.revealed) return;
+  cell.flagged = !cell.flagged;
+  flags += cell.flagged ? 1 : -1;
+  mineCountEl.textContent = '💣 ' + (mines - flags);
+  updateCell(r, c);
+}
+
+function checkWin() {
+  let unrevealed = 0;
+  for (let r=0;r<rows;r++) for (let c=0;c<cols;c++) if(!board[r][c].revealed) unrevealed++;
+  if (unrevealed === mines) {
+    won = true; gameOver = true;
+    clearInterval(timerInterval);
+    setBest(timer);
+    bestTimeEl.textContent = '🏆 ' + getBest() + 's';
+    msgEl.textContent = '🎉 胜利! 用时 ' + timer + ' 秒';
+    msgEl.style.color = '#06d6a0';
+    // Firework animation on mines
+    for (let r=0;r<rows;r++) for (let c=0;c<cols;c++) {
+      if (board[r][c].mine) {
+        board[r][c].flagged = true;
+        setTimeout(() => updateCell(r, c), (r*cols+c) * 50);
+      }
+    }
+  }
+}
+
+const NUM_COLORS = ['','#00d2ff','#06d6a0','#e94560','#0f3460','#8338ec','#fb8500','#ffd700','#ff6b6b'];
+
+function renderBoard() {
+  const d = DIFFS[diff];
+  boardEl.style.gridTemplateColumns = `repeat(${cols}, ${d.cellSize}px)`;
+  boardEl.innerHTML = '';
+  for (let r=0;r<rows;r++) for (let c=0;c<cols;c++) {
+    const el = document.createElement('div');
+    el.className = 'cell';
+    el.style.width = d.cellSize + 'px';
+    el.style.height = d.cellSize + 'px';
+    el.style.fontSize = (d.cellSize * 0.45) + 'px';
+    el.dataset.r = r; el.dataset.c = c;
+    setCellContent(el, r, c);
+    el.addEventListener('click', () => handleClick(r, c));
+    el.addEventListener('contextmenu', e => { e.preventDefault(); handleFlag(r, c); });
+    // Long press for mobile flag
+    let longTimer;
+    el.addEventListener('touchstart', e => { longTimer = setTimeout(() => { e.preventDefault(); handleFlag(r, c); }, 300); }, {passive:false});
+    el.addEventListener('touchend', () => clearTimeout(longTimer));
+    el.addEventListener('touchmove', () => clearTimeout(longTimer));
+    boardEl.appendChild(el);
+  }
+}
+
+function setCellContent(el, r, c) {
+  const cell = board[r][c];
+  el.className = 'cell';
+  if (cell.revealed) {
+    if (cell.mine) { el.classList.add('mine'); el.textContent = '💣'; }
+    else { el.classList.add('revealed'); el.textContent = cell.count > 0 ? cell.count : ''; el.style.color = NUM_COLORS[cell.count] || '#fff'; }
+  } else if (cell.flagged) {
+    el.classList.add('flagged'); el.textContent = '🚩';
+  } else {
+    el.classList.add('hidden'); el.textContent = '';
+  }
+}
+
+function updateCell(r, c) {
+  if (r<0||r>=rows||c<0||c>=cols) return;
+  const el = document.querySelector(`[data-r="${r}"][data-c="${c}"]`);
+  if (el) setCellContent(el, r, c);
+}
+
+function goBack() { const base = window.location.pathname.replace(/\/games\/[^/]*$/, '/'); window.location.href = base; }
+
+function setDiff(d) {
+  diff = d;
+  document.querySelectorAll('#diffBtns button').forEach(b => b.classList.remove('active'));
+  document.getElementById(d === 'easy' ? 'easyBtn' : d === 'medium' ? 'medBtn' : 'hardBtn').classList.add('active');
+  init();
+}
+
+document.getElementById('backBtn').addEventListener('click', goBack);
+document.getElementById('resetBtn').addEventListener('click', init);
+document.getElementById('easyBtn').addEventListener('click', () => setDiff('easy'));
+document.getElementById('medBtn').addEventListener('click', () => setDiff('medium'));
+document.getElementById('hardBtn').addEventListener('click', () => setDiff('hard'));
+
+init();
+</script>
+</body>
+</html>

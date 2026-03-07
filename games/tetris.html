@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>俄罗斯方块 - 跳跳游戏</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#1a1a2e; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; overflow:hidden; font-family:'Microsoft YaHei',sans-serif; user-select:none; }
+canvas { display:block; border-radius:8px; }
+#topBar { position:absolute; top:0; left:0; right:0; display:flex; justify-content:space-between; align-items:center; padding:8px 12px; z-index:5; }
+#topBar button { padding:6px 14px; font-size:13px; border:none; border-radius:8px; background:#555; color:#fff; cursor:pointer; }
+#topBar .info { color:#fff; font-size:14px; }
+#overlay { position:absolute; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); display:flex; flex-direction:column; justify-content:center; align-items:center; color:#fff; z-index:10; }
+#overlay h1 { font-size:32px; margin-bottom:8px; }
+#overlay .sub { font-size:15px; color:#aaa; margin-bottom:16px; }
+#overlay .score-display { font-size:24px; color:#ffd700; margin-bottom:8px; }
+#overlay button { padding:12px 36px; font-size:18px; border:none; border-radius:10px; background:#e94560; color:#fff; cursor:pointer; margin:4px; transition:transform 0.1s; }
+#overlay button:hover { transform:scale(1.05); }
+#overlay .secondary { background:#555; font-size:14px; padding:8px 24px; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="topBar">
+  <button id="backBtn">← 返回</button>
+  <div class="info" id="scoreDisplay">分数: 0 | 等级: 1</div>
+  <button id="pauseBtn">⏸</button>
+</div>
+<div id="overlay">
+  <h1>🔲 俄罗斯方块</h1>
+  <div class="sub">方向键/滑动操控，空格硬降</div>
+  <div class="score-display" id="highScoreText"></div>
+  <button id="startBtn">开始游戏</button>
+  <button class="secondary" id="overlayBackBtn">← 返回首页</button>
+</div>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const overlayEl = document.getElementById('overlay');
+const scoreDisplay = document.getElementById('scoreDisplay');
+
+const COLS = 10, ROWS = 20, CELL = 24;
+const BOARD_W = COLS * CELL, BOARD_H = ROWS * CELL;
+const SIDE_W = 120;
+const GW = BOARD_W + SIDE_W, GH = BOARD_H;
+canvas.width = GW; canvas.height = GH;
+
+const SHAPES = {
+  I: { shape: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], color: '#00d2ff' },
+  O: { shape: [[1,1],[1,1]], color: '#ffd700' },
+  T: { shape: [[0,1,0],[1,1,1],[0,0,0]], color: '#8338ec' },
+  S: { shape: [[0,1,1],[1,1,0],[0,0,0]], color: '#06d6a0' },
+  Z: { shape: [[1,1,0],[0,1,1],[0,0,0]], color: '#e94560' },
+  J: { shape: [[1,0,0],[1,1,1],[0,0,0]], color: '#0f3460' },
+  L: { shape: [[0,0,1],[1,1,1],[0,0,0]], color: '#fb8500' },
+};
+const SHAPE_KEYS = Object.keys(SHAPES);
+
+const HS_KEY = 'tetris_highScore';
+function getHS() { return parseInt(localStorage.getItem(HS_KEY)) || 0; }
+function setHS(s) { if (s > getHS()) localStorage.setItem(HS_KEY, s); }
+
+let board, current, next, score, level, lines, dropTimer, dropInterval;
+let gameRunning, paused, gameOver, lastTime;
+let particles, floatingTexts, flashAlpha, shakeDur, shakeX, shakeY;
+let combo, comboTimer;
+let clearingRows, clearTimer;
+let bgHue;
+
+function rotate(shape) {
+  const n = shape.length;
+  const r = Array.from({length:n}, () => Array(n).fill(0));
+  for (let y=0;y<n;y++) for (let x=0;x<n;x++) r[x][n-1-y] = shape[y][x];
+  return r;
+}
+
+function randomPiece() {
+  const key = SHAPE_KEYS[Math.floor(Math.random() * SHAPE_KEYS.length)];
+  const s = SHAPES[key];
+  return { shape: s.shape.map(r=>[...r]), color: s.color, x: Math.floor((COLS - s.shape[0].length) / 2), y: 0, type: key };
+}
+
+function collides(shape, px, py) {
+  for (let y=0;y<shape.length;y++) for (let x=0;x<shape[y].length;x++) {
+    if (!shape[y][x]) continue;
+    const bx = px+x, by = py+y;
+    if (bx<0||bx>=COLS||by>=ROWS) return true;
+    if (by>=0 && board[by][bx]) return true;
+  }
+  return false;
+}
+
+function lock() {
+  for (let y=0;y<current.shape.length;y++) for (let x=0;x<current.shape[y].length;x++) {
+    if (!current.shape[y][x]) continue;
+    const by = current.y+y, bx = current.x+x;
+    if (by < 0) { gameOver = true; gameRunning = false; setHS(score); setTimeout(showGameOver, 300); return; }
+    board[by][bx] = current.color;
+  }
+  checkLines();
+  current = next;
+  next = randomPiece();
+  dropTimer = 0;
+}
+
+function checkLines() {
+  const full = [];
+  for (let y=0;y<ROWS;y++) if (board[y].every(c=>c)) full.push(y);
+  if (full.length === 0) { combo = 0; return; }
+
+  clearingRows = full;
+  clearTimer = 300;
+
+  const pts = [0, 100, 300, 500, 800][full.length] * level;
+  score += pts;
+  lines += full.length;
+  combo++;
+  comboTimer = 2000;
+
+  const labels = ['', '', 'DOUBLE!', 'TRIPLE!', 'TETRIS!'];
+  if (full.length >= 2) {
+    addFloating(BOARD_W/2, GH/2, labels[full.length] || 'AMAZING!', full.length === 4 ? '#ffd700' : '#ff6b6b');
+    screenShake(full.length * 50);
+    if (full.length === 4) { flashScreen(); spawnParticles(BOARD_W/2, GH/2, '#ffd700', 50); bgHue = (bgHue + 30) % 360; }
+  }
+  addFloating(BOARD_W/2, full[0]*CELL, '+' + pts, '#ffd700');
+  if (combo >= 2) addFloating(BOARD_W/2, GH/2 + 30, 'x' + combo + ' COMBO!', '#ff6b6b');
+
+  // Particles for cleared rows
+  full.forEach(y => { for (let x=0;x<COLS;x++) spawnParticles(x*CELL+CELL/2, y*CELL+CELL/2, board[y][x]||'#fff', 3); });
+
+  // Level up
+  const newLevel = Math.floor(lines / 10) + 1;
+  if (newLevel > level) {
+    level = newLevel;
+    dropInterval = getDropInterval();
+    addFloating(BOARD_W/2, GH/2 - 50, '⬆ 等级 ' + level, '#06d6a0');
+    flashScreen();
+  }
+
+  setTimeout(() => {
+    full.sort((a,b)=>a-b).reverse().forEach(y => { board.splice(y, 1); board.unshift(Array(COLS).fill(0)); });
+    clearingRows = null;
+  }, 300);
+}
+
+function getDropInterval() {
+  const intervals = [1000, 850, 700, 550, 400, 300, 200, 150, 100, 80];
+  return intervals[Math.min(level-1, intervals.length-1)];
+}
+
+function hardDrop() {
+  let dy = 0;
+  while (!collides(current.shape, current.x, current.y + dy + 1)) dy++;
+  current.y += dy;
+  score += dy * 2;
+  // Impact effect
+  for (let x=0;x<current.shape[0].length;x++) {
+    for (let y=current.shape.length-1;y>=0;y--) {
+      if (current.shape[y][x]) { spawnParticles((current.x+x)*CELL+CELL/2, (current.y+y)*CELL+CELL, '#fff', 3); break; }
+    }
+  }
+  screenShake(80);
+  lock();
+}
+
+function spawnParticles(x,y,color,count) { for(let i=0;i<count;i++) particles.push({x,y,vx:(Math.random()-0.5)*5,vy:(Math.random()-0.5)*5-1,life:1,decay:0.025+Math.random()*0.03,size:2+Math.random()*3,color}); }
+function addFloating(x,y,text,color) { floatingTexts.push({x,y,text,color:color||'#ffd700',life:1,vy:-1.5}); }
+function screenShake(d) { shakeDur=d||150; }
+function flashScreen() { flashAlpha=0.25; }
+
+function init() {
+  board = Array.from({length:ROWS}, ()=>Array(COLS).fill(0));
+  current = randomPiece(); next = randomPiece();
+  score = 0; level = 1; lines = 0;
+  dropTimer = 0; dropInterval = getDropInterval();
+  gameRunning = true; paused = false; gameOver = false;
+  particles = []; floatingTexts = [];
+  flashAlpha = 0; shakeDur = 0; shakeX = 0; shakeY = 0;
+  combo = 0; comboTimer = 0;
+  clearingRows = null; clearTimer = 0;
+  bgHue = 240;
+  lastTime = performance.now();
+  overlayEl.style.display = 'none';
+  requestAnimationFrame(gameLoop);
+}
+
+function showGameOver() {
+  overlayEl.innerHTML = `<h1>💀 游戏结束</h1><div class="score-display">得分: ${score}</div><div class="sub">最高分: ${getHS()} | 等级: ${level} | 消行: ${lines}</div><button id="retryBtn">再来一局</button><button class="secondary" id="goBackBtn">← 返回首页</button>`;
+  overlayEl.style.display = 'flex';
+  document.getElementById('retryBtn').addEventListener('click', init);
+  document.getElementById('goBackBtn').addEventListener('click', goBack);
+}
+function goBack() { const base = window.location.pathname.replace(/\/games\/[^/]*$/, '/'); window.location.href = base; }
+
+function gameLoop(ts) {
+  if (!lastTime) lastTime = ts;
+  let dt = ts - lastTime; lastTime = ts;
+  if (dt > 100) dt = 100;
+
+  if (gameRunning && !paused && !clearingRows) {
+    dropTimer += dt;
+    if (dropTimer >= dropInterval) {
+      dropTimer = 0;
+      if (!collides(current.shape, current.x, current.y + 1)) current.y++;
+      else lock();
+    }
+    if (comboTimer > 0) { comboTimer -= dt; if (comboTimer <= 0) combo = 0; }
+    scoreDisplay.textContent = '分数: ' + score + ' | 等级: ' + level;
+  }
+
+  if (flashAlpha > 0) flashAlpha -= 0.012;
+  if (shakeDur > 0) { shakeDur -= dt; shakeX=(Math.random()-0.5)*5; shakeY=(Math.random()-0.5)*5; } else { shakeX=0; shakeY=0; }
+  for (let i=particles.length-1;i>=0;i--) { const p=particles[i]; p.x+=p.vx; p.y+=p.vy; p.vy+=0.08; p.life-=p.decay; if(p.life<=0) particles.splice(i,1); }
+  for (let i=floatingTexts.length-1;i>=0;i--) { const f=floatingTexts[i]; f.y+=f.vy; f.life-=0.012; if(f.life<=0) floatingTexts.splice(i,1); }
+
+  render();
+  requestAnimationFrame(gameLoop);
+}
+
+function render() {
+  ctx.save(); ctx.translate(shakeX, shakeY);
+  const bgL = 12 + Math.sin(performance.now()*0.001) * 2;
+  ctx.fillStyle = `hsl(${bgHue},30%,${bgL}%)`; ctx.fillRect(0, 0, GW, GH);
+
+  // Board border
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1;
+  ctx.strokeRect(0, 0, BOARD_W, BOARD_H);
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  for (let x=0;x<=COLS;x++) { ctx.beginPath(); ctx.moveTo(x*CELL,0); ctx.lineTo(x*CELL,BOARD_H); ctx.stroke(); }
+  for (let y=0;y<=ROWS;y++) { ctx.beginPath(); ctx.moveTo(0,y*CELL); ctx.lineTo(BOARD_W,y*CELL); ctx.stroke(); }
+
+  // Board cells
+  for (let y=0;y<ROWS;y++) for (let x=0;x<COLS;x++) {
+    if (!board[y][x]) continue;
+    const isClearing = clearingRows && clearingRows.includes(y);
+    ctx.fillStyle = isClearing ? `rgba(255,255,255,${0.5+0.5*Math.sin(performance.now()*0.02)})` : board[y][x];
+    ctx.fillRect(x*CELL+1, y*CELL+1, CELL-2, CELL-2);
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(x*CELL+1, y*CELL+1, CELL-2, 3);
+  }
+
+  // Ghost piece
+  if (current && !clearingRows) {
+    let gy = current.y;
+    while (!collides(current.shape, current.x, gy+1)) gy++;
+    if (gy !== current.y) {
+      ctx.globalAlpha = 0.2;
+      for (let y=0;y<current.shape.length;y++) for (let x=0;x<current.shape[y].length;x++) {
+        if (!current.shape[y][x]) continue;
+        ctx.fillStyle = current.color;
+        ctx.fillRect((current.x+x)*CELL+1, (gy+y)*CELL+1, CELL-2, CELL-2);
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // Current piece
+  if (current && !clearingRows) {
+    for (let y=0;y<current.shape.length;y++) for (let x=0;x<current.shape[y].length;x++) {
+      if (!current.shape[y][x]) continue;
+      ctx.fillStyle = current.color;
+      ctx.fillRect((current.x+x)*CELL+1, (current.y+y)*CELL+1, CELL-2, CELL-2);
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      ctx.fillRect((current.x+x)*CELL+1, (current.y+y)*CELL+1, CELL-2, 3);
+    }
+  }
+
+  // Side panel
+  const sx = BOARD_W + 10;
+  ctx.fillStyle = '#fff'; ctx.font = '13px Microsoft YaHei'; ctx.textAlign = 'left';
+  ctx.fillText('下一个:', sx, 20);
+
+  // Next piece preview
+  if (next) {
+    for (let y=0;y<next.shape.length;y++) for (let x=0;x<next.shape[y].length;x++) {
+      if (!next.shape[y][x]) continue;
+      ctx.fillStyle = next.color;
+      ctx.fillRect(sx + x*18, 30 + y*18, 16, 16);
+    }
+  }
+
+  ctx.fillStyle = '#aaa'; ctx.font = '12px Microsoft YaHei';
+  ctx.fillText('等级: ' + level, sx, 120);
+  ctx.fillText('消行: ' + lines, sx, 140);
+  ctx.fillText('分数:', sx, 170);
+  ctx.fillStyle = '#ffd700'; ctx.fillText(score, sx, 188);
+
+  // Particles
+  particles.forEach(p => { ctx.globalAlpha=p.life; ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(p.x,p.y,p.size*p.life,0,Math.PI*2); ctx.fill(); });
+  ctx.globalAlpha = 1;
+  floatingTexts.forEach(f => { ctx.globalAlpha=f.life; ctx.fillStyle=f.color; ctx.font='bold 18px Microsoft YaHei'; ctx.textAlign='center'; ctx.fillText(f.text,f.x,f.y); });
+  ctx.globalAlpha = 1;
+  if (flashAlpha > 0) { ctx.fillStyle=`rgba(255,255,255,${flashAlpha})`; ctx.fillRect(0,0,GW,GH); }
+  if (paused) { ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(0,0,GW,GH); ctx.fillStyle='#fff'; ctx.font='bold 28px Microsoft YaHei'; ctx.textAlign='center'; ctx.fillText('⏸ 暂停',GW/2,GH/2); }
+  ctx.restore();
+}
+
+function resize() { const s=Math.min(window.innerWidth/GW,(window.innerHeight-50)/GH,2); canvas.style.width=(GW*s)+'px'; canvas.style.height=(GH*s)+'px'; }
+window.addEventListener('resize', resize); resize();
+
+// Input
+document.addEventListener('keydown', e => {
+  if (!gameRunning || paused || clearingRows) { if(e.key==='Escape'||e.key==='p') togglePause(); return; }
+  if (e.key === 'ArrowLeft') { if (!collides(current.shape, current.x-1, current.y)) current.x--; }
+  else if (e.key === 'ArrowRight') { if (!collides(current.shape, current.x+1, current.y)) current.x++; }
+  else if (e.key === 'ArrowDown') { if (!collides(current.shape, current.x, current.y+1)) { current.y++; score++; dropTimer=0; } }
+  else if (e.key === 'ArrowUp') { const r=rotate(current.shape); if(!collides(r,current.x,current.y)) current.shape=r; else if(!collides(r,current.x-1,current.y)){current.shape=r;current.x--;} else if(!collides(r,current.x+1,current.y)){current.shape=r;current.x++;} }
+  else if (e.key === ' ') { e.preventDefault(); hardDrop(); }
+  else if (e.key === 'Escape' || e.key === 'p') togglePause();
+});
+
+// Touch
+let tx0=0, ty0=0, tTime=0;
+canvas.addEventListener('touchstart', e => { e.preventDefault(); tx0=e.touches[0].clientX; ty0=e.touches[0].clientY; tTime=Date.now(); }, {passive:false});
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (!gameRunning || paused || clearingRows) return;
+  const dx=e.changedTouches[0].clientX-tx0, dy=e.changedTouches[0].clientY-ty0;
+  const dt=Date.now()-tTime;
+  if (Math.abs(dx)<15 && Math.abs(dy)<15 && dt<200) { hardDrop(); return; }
+  if (Math.abs(dx) > Math.abs(dy)) {
+    if (dx > 30 && !collides(current.shape, current.x+1, current.y)) current.x++;
+    else if (dx < -30 && !collides(current.shape, current.x-1, current.y)) current.x--;
+  } else {
+    if (dy < -30) { const r=rotate(current.shape); if(!collides(r,current.x,current.y)) current.shape=r; }
+    else if (dy > 30) { while(!collides(current.shape,current.x,current.y+1)){current.y++;score++;} }
+  }
+}, {passive:false});
+
+function togglePause() { if(!gameRunning||gameOver) return; paused=!paused; document.getElementById('pauseBtn').textContent=paused?'▶':'⏸'; }
+document.getElementById('pauseBtn').addEventListener('click', togglePause);
+document.getElementById('backBtn').addEventListener('click', goBack);
+document.getElementById('overlayBackBtn').addEventListener('click', goBack);
+document.getElementById('startBtn').addEventListener('click', init);
+
+const hs = getHS();
+if (hs > 0) document.getElementById('highScoreText').textContent = '🏆 最高分: ' + hs;
+ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, GW, GH);
+</script>
+</body>
+</html>
