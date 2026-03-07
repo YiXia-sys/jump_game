@@ -64,6 +64,20 @@ function verifyToken(username, token) {
   return usersData[username].token === token;
 }
 
+// === 皮肤系统 ===
+const SKIN_PRICES = {
+  'default': 0, 'flame': 50, 'ocean': 50, 'forest': 30,
+  'galaxy': 80, 'candy': 30, 'gold': 100, 'frost': 60
+};
+
+function ensureSkinData(username) {
+  const user = usersData[username];
+  if (!user) return;
+  if (user.coins === undefined) user.coins = 0;
+  if (!Array.isArray(user.unlockedSkins)) user.unlockedSkins = ['default'];
+  if (!user.equippedSkin) user.equippedSkin = 'default';
+}
+
 // === HTTP 服务 + API ===
 
 const httpServer = http.createServer((req, res) => {
@@ -172,6 +186,86 @@ const httpServer = http.createServer((req, res) => {
     return;
   }
 
+  // === 金币 API ===
+  const parsedUrl = new URL(req.url, 'http://localhost');
+  if (parsedUrl.pathname === '/api/coins' && req.method === 'GET') {
+    const params = parsedUrl.searchParams;
+    const username = params.get('username');
+    const token = params.get('token');
+    if (!verifyToken(username, token)) { jsonRes(res, 401, { error: '未登录或登录已过期' }); return; }
+    ensureSkinData(username);
+    jsonRes(res, 200, { coins: usersData[username].coins });
+    return;
+  }
+
+  if (req.url === '/api/coins/add' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { username, token, amount } = JSON.parse(body);
+        if (!verifyToken(username, token)) { jsonRes(res, 401, { error: '未登录或登录已过期' }); return; }
+        ensureSkinData(username);
+        usersData[username].coins += amount;
+        saveUsers();
+        jsonRes(res, 200, { ok: true, coins: usersData[username].coins });
+      } catch(e) { jsonRes(res, 400, { error: '请求格式错误' }); }
+    });
+    return;
+  }
+
+  // === 皮肤 API ===
+  if (parsedUrl.pathname === '/api/skins' && req.method === 'GET') {
+    const params = parsedUrl.searchParams;
+    const username = params.get('username');
+    const token = params.get('token');
+    if (!verifyToken(username, token)) { jsonRes(res, 401, { error: '未登录或登录已过期' }); return; }
+    ensureSkinData(username);
+    const user = usersData[username];
+    jsonRes(res, 200, { unlockedSkins: user.unlockedSkins, equippedSkin: user.equippedSkin });
+    return;
+  }
+
+  if (req.url === '/api/skins/buy' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { username, token, skinId } = JSON.parse(body);
+        if (!verifyToken(username, token)) { jsonRes(res, 401, { error: '未登录或登录已过期' }); return; }
+        ensureSkinData(username);
+        const price = SKIN_PRICES[skinId];
+        if (price === undefined) { jsonRes(res, 400, { error: '皮肤不存在' }); return; }
+        const user = usersData[username];
+        if (user.unlockedSkins.includes(skinId)) { jsonRes(res, 400, { error: '皮肤已解锁' }); return; }
+        if (user.coins < price) { jsonRes(res, 400, { error: '金币不足' }); return; }
+        user.coins -= price;
+        user.unlockedSkins.push(skinId);
+        saveUsers();
+        jsonRes(res, 200, { ok: true, coins: user.coins, unlockedSkins: user.unlockedSkins });
+      } catch(e) { jsonRes(res, 400, { error: '请求格式错误' }); }
+    });
+    return;
+  }
+
+  if (req.url === '/api/skins/equip' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { username, token, skinId } = JSON.parse(body);
+        if (!verifyToken(username, token)) { jsonRes(res, 401, { error: '未登录或登录已过期' }); return; }
+        ensureSkinData(username);
+        const user = usersData[username];
+        if (!user.unlockedSkins.includes(skinId)) { jsonRes(res, 400, { error: '皮肤未解锁' }); return; }
+        user.equippedSkin = skinId;
+        saveUsers();
+        jsonRes(res, 200, { ok: true, equippedSkin: user.equippedSkin });
+      } catch(e) { jsonRes(res, 400, { error: '请求格式错误' }); }
+    });
+    return;
+  }
+
   // 静态文件服务
   let filePath = req.url === '/' ? '/index.html' : req.url;
   filePath = path.join(__dirname, filePath);
@@ -222,7 +316,7 @@ function broadcastAll(room, msg) { broadcast(room, msg); }
 function getPlayerInfoList(room) {
   const list = [];
   for (const [id, p] of room.players) {
-    list.push({ id, name: p.name, color: p.color, connected: p.connected, isBot: !!p.isBot });
+    list.push({ id, name: p.name, color: p.color, connected: p.connected, isBot: !!p.isBot, skinId: p.skinId || 'default' });
   }
   return list;
 }
@@ -245,7 +339,7 @@ function getRoomState(room) {
 const rooms = new Map(); // roomCode -> Room
 const playerRooms = new Map(); // playerId -> roomCode
 
-function createRoom(hostId, hostName, hostWs) {
+function createRoom(hostId, hostName, hostWs, skinId) {
   const code = generateRoomCode(new Set(rooms.keys()));
   const room = {
     code,
@@ -261,16 +355,17 @@ function createRoom(hostId, hostName, hostWs) {
     lastEvents: new Map(),
     destroyTimer: null
   };
-  const player = createServerPlayer(hostId, hostName, hostWs, CHAR_COLORS[0]);
+  const player = createServerPlayer(hostId, hostName, hostWs, CHAR_COLORS[0], skinId);
   room.players.set(hostId, player);
   rooms.set(code, room);
   playerRooms.set(hostId, code);
   return room;
 }
 
-function createServerPlayer(id, name, ws, color) {
+function createServerPlayer(id, name, ws, color, skinId) {
   return {
     id, name, ws, color,
+    skinId: skinId || 'default',
     platformIndex: 1,
     items: [],
     skipTurns: 0,
@@ -285,13 +380,13 @@ function createServerPlayer(id, name, ws, color) {
   };
 }
 
-function joinRoom(roomCode, playerId, playerName, ws) {
+function joinRoom(roomCode, playerId, playerName, ws, skinId) {
   const room = rooms.get(roomCode);
   if (!room) return { error: '房间不存在' };
   if (room.phase !== 'waiting') return { error: '游戏已开始' };
   if (room.players.size >= 6) return { error: '房间已满' };
   const colorIdx = room.players.size % CHAR_COLORS.length;
-  const player = createServerPlayer(playerId, playerName, ws, CHAR_COLORS[colorIdx]);
+  const player = createServerPlayer(playerId, playerName, ws, CHAR_COLORS[colorIdx], skinId);
   room.players.set(playerId, player);
   playerRooms.set(playerId, roomCode);
   return { room };
@@ -999,14 +1094,16 @@ function handleMessage(ws, msg) {
   switch (msg.type) {
     case 'create_room': {
       const name = (msg.playerName || '').trim().slice(0, 8) || '玩家';
-      const room = createRoom(playerId, name, ws);
+      const skinId = msg.skinId || 'default';
+      const room = createRoom(playerId, name, ws, skinId);
       sendTo(ws, { type: 'room_created', roomCode: room.code, room: getRoomState(room) });
       break;
     }
     case 'join_room': {
       const name = (msg.playerName || '').trim().slice(0, 8) || '玩家';
+      const skinId = msg.skinId || 'default';
       const code = (msg.roomCode || '').toUpperCase();
-      const result = joinRoom(code, playerId, name, ws);
+      const result = joinRoom(code, playerId, name, ws, skinId);
       if (result.error) {
         sendTo(ws, { type: 'room_error', message: result.error });
       } else {

@@ -157,6 +157,7 @@
     <button id="testModeBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#0f3460;color:#fff;cursor:pointer;margin-top:10px;">测试模式</button>
     <button id="arenaModeBtn" style="padding:12px 40px;font-size:20px;border:none;border-radius:8px;background:#533483;color:#fff;cursor:pointer;margin-top:10px;">竞技模式</button>
     <button id="leaderboardBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#fb8500;color:#fff;cursor:pointer;margin-top:10px;">🏆 排行榜</button>
+    <button id="skinStoreBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#e91e63;color:#fff;cursor:pointer;margin-top:10px;">🎨 皮肤商店</button>
     <button id="homeBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#555;color:#fff;cursor:pointer;margin-top:10px;display:none;">返回首页</button>
     <div id="highScoreArea" style="margin-top:16px;text-align:center;">
       <div id="highScoreDisplay" style="color:#ffd700;font-size:16px;"></div>
@@ -276,6 +277,9 @@ function setLoggedInUser(username, token) {
 function logoutUser() {
   localStorage.removeItem(LOGGED_IN_KEY);
   localStorage.removeItem(AUTH_TOKEN_KEY);
+  playerCoins = 0;
+  playerUnlockedSkins = ['default'];
+  playerEquippedSkin = 'default';
 }
 
 function getApiBase() {
@@ -298,6 +302,10 @@ async function verifyAuth() {
     if (!data.ok) {
       // token 过期，清除登录状态
       logoutUser();
+    } else {
+      // 同步金币和皮肤数据
+      await fetchCoinBalance();
+      await fetchSkinData();
     }
   } catch(e) {
     // 网络错误不清除，下次再验证
@@ -323,6 +331,8 @@ async function doAuth(action) {
     const data = await resp.json();
     if (data.ok) {
       setLoggedInUser(data.username, data.token);
+      await fetchCoinBalance();
+      await fetchSkinData();
       showOverlay(false);
     } else {
       if (msgEl) msgEl.textContent = data.error || '操作失败';
@@ -330,6 +340,44 @@ async function doAuth(action) {
   } catch(e) {
     if (msgEl) msgEl.textContent = '网络错误，请确认服务器已启动';
   }
+}
+
+async function submitCoins(amount) {
+  const username = getLoggedInUser();
+  const token = getAuthToken();
+  if (!username || !token || amount <= 0) return;
+  try {
+    const resp = await fetch(getApiBase() + '/api/coins/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, token, amount })
+    });
+    const data = await resp.json();
+    if (data.ok) playerCoins = data.coins;
+  } catch(e) {}
+}
+
+async function fetchCoinBalance() {
+  const username = getLoggedInUser();
+  const token = getAuthToken();
+  if (!username || !token) return;
+  try {
+    const resp = await fetch(getApiBase() + `/api/coins?username=${encodeURIComponent(username)}&token=${encodeURIComponent(token)}`);
+    const data = await resp.json();
+    if (data.coins !== undefined) playerCoins = data.coins;
+  } catch(e) {}
+}
+
+async function fetchSkinData() {
+  const username = getLoggedInUser();
+  const token = getAuthToken();
+  if (!username || !token) return;
+  try {
+    const resp = await fetch(getApiBase() + `/api/skins?username=${encodeURIComponent(username)}&token=${encodeURIComponent(token)}`);
+    const data = await resp.json();
+    if (data.unlockedSkins) playerUnlockedSkins = data.unlockedSkins;
+    if (data.equippedSkin) playerEquippedSkin = data.equippedSkin;
+  } catch(e) {}
 }
 
 async function submitScore(mode, score, platformIndex, rank) {
@@ -393,6 +441,153 @@ async function showLeaderboard() {
     }
   }
   renderLb();
+}
+
+// === 皮肤商店 ===
+
+function getSkinButtonState(skinId) {
+  if (playerEquippedSkin === skinId) return 'equipped';
+  if (playerUnlockedSkins.includes(skinId)) return 'equip';
+  return 'buy';
+}
+
+function drawSkinPreview(cvs, skin) {
+  const c = cvs.getContext('2d');
+  const w = cvs.width, h = cvs.height;
+  c.clearRect(0, 0, w, h);
+  const px = w / 2, py = h - 10;
+  const bw = 16, bh = 32;
+  const bodyColor = skin.bodyColor || '#e94560';
+  // 阴影
+  c.fillStyle = 'rgba(0,0,0,0.15)';
+  c.beginPath();
+  c.ellipse(px, py + 2, bw * 0.6, 3, 0, 0, Math.PI * 2);
+  c.fill();
+  // 轮廓
+  if (skin.outlineColor) {
+    c.fillStyle = skin.outlineColor;
+    c.beginPath();
+    c.roundRect(px - bw / 2 - 1.5, py - bh - 1.5, bw + 3, bh + 3, [bw / 2 + 1, bw / 2 + 1, 5, 5]);
+    c.fill();
+  }
+  // 身体
+  c.fillStyle = bodyColor;
+  c.beginPath();
+  c.roundRect(px - bw / 2, py - bh, bw, bh, [bw / 2, bw / 2, 4, 4]);
+  c.fill();
+  // 内圈
+  c.fillStyle = skin.innerColor;
+  c.beginPath();
+  c.roundRect(px - bw / 2 + 2, py - bh + 2, bw - 4, bh - 4, [bw / 2 - 2, bw / 2 - 2, 2, 2]);
+  c.fill();
+  // 眼睛
+  c.fillStyle = skin.eyeColor;
+  const eyeY = py - bh + bh * 0.35;
+  c.beginPath();
+  c.arc(px - 3, eyeY, skin.eyeSize * 0.8, 0, Math.PI * 2);
+  c.arc(px + 3, eyeY, skin.eyeSize * 0.8, 0, Math.PI * 2);
+  c.fill();
+  // 高光
+  c.fillStyle = skin.highlightColor;
+  c.beginPath();
+  c.arc(px - 2, eyeY - 1, 0.8, 0, Math.PI * 2);
+  c.arc(px + 4, eyeY - 1, 0.8, 0, Math.PI * 2);
+  c.fill();
+  // 特效标记
+  if (skin.effect) {
+    c.font = '10px sans-serif';
+    c.textAlign = 'center';
+    const effectIcons = { flame: '🔥', trail: '💧', sparkle: '✨', glow: '💫', rainbow: '🌈' };
+    c.fillText(effectIcons[skin.effect] || '⭐', px, py - bh - 6);
+  }
+}
+
+async function showSkinStore() {
+  overlay.style.display = 'flex';
+  // 先刷新数据
+  await fetchCoinBalance();
+  await fetchSkinData();
+  overlay.innerHTML = `
+    <div style="width:90%;max-width:480px;max-height:90vh;overflow-y:auto;text-align:center;">
+      <h2 style="font-size:24px;margin-bottom:6px;">🎨 皮肤商店</h2>
+      <div style="color:#ffd700;font-size:16px;margin-bottom:12px;">🪙 ${playerCoins} 金币</div>
+      <div id="skinGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;"></div>
+      <button id="skinStoreBackBtn" style="padding:8px 24px;font-size:14px;border:none;border-radius:8px;background:#555;color:#fff;cursor:pointer;margin-top:14px;">返回</button>
+    </div>
+  `;
+  const grid = document.getElementById('skinGrid');
+  SKIN_REGISTRY.forEach(skin => {
+    const state = getSkinButtonState(skin.skinId);
+    const card = document.createElement('div');
+    card.style.cssText = 'background:rgba(255,255,255,0.08);border-radius:10px;padding:8px;text-align:center;cursor:pointer;transition:transform 0.15s;';
+    if (state === 'equipped') card.style.border = '2px solid #ffd700';
+    const cvs = document.createElement('canvas');
+    cvs.width = 60; cvs.height = 60;
+    cvs.style.cssText = 'display:block;margin:0 auto 4px;';
+    card.appendChild(cvs);
+    drawSkinPreview(cvs, skin);
+    const nameEl = document.createElement('div');
+    nameEl.style.cssText = 'color:#fff;font-size:12px;font-weight:bold;';
+    nameEl.textContent = skin.name;
+    card.appendChild(nameEl);
+    const btnEl = document.createElement('button');
+    btnEl.style.cssText = 'padding:3px 10px;font-size:11px;border:none;border-radius:5px;cursor:pointer;margin-top:4px;color:#fff;';
+    if (state === 'buy') {
+      btnEl.style.background = '#e94560';
+      btnEl.textContent = skin.price + ' 🪙';
+    } else if (state === 'equip') {
+      btnEl.style.background = '#06d6a0';
+      btnEl.textContent = '装备';
+    } else {
+      btnEl.style.background = '#555';
+      btnEl.textContent = '已装备';
+      btnEl.disabled = true;
+    }
+    btnEl.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (state === 'buy') {
+        try {
+          const resp = await fetch(getApiBase() + '/api/skins/buy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: getLoggedInUser(), token: getAuthToken(), skinId: skin.skinId })
+          });
+          const data = await resp.json();
+          if (data.ok) {
+            playerCoins = data.coins;
+            playerUnlockedSkins = data.unlockedSkins;
+            showSkinStore();
+          } else {
+            alert(data.error || '购买失败');
+          }
+        } catch(err) { alert('网络错误'); }
+      } else if (state === 'equip') {
+        try {
+          const resp = await fetch(getApiBase() + '/api/skins/equip', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: getLoggedInUser(), token: getAuthToken(), skinId: skin.skinId })
+          });
+          const data = await resp.json();
+          if (data.ok) {
+            playerEquippedSkin = data.equippedSkin;
+            showSkinStore();
+          } else {
+            alert(data.error || '装备失败');
+          }
+        } catch(err) { alert('网络错误'); }
+      }
+    });
+    card.appendChild(btnEl);
+    card.addEventListener('mouseenter', () => { card.style.transform = 'scale(1.05)'; });
+    card.addEventListener('mouseleave', () => { card.style.transform = 'scale(1)'; });
+    grid.appendChild(card);
+  });
+  document.getElementById('skinStoreBackBtn').onclick = () => closeSkinStore();
+}
+
+function closeSkinStore() {
+  showOverlay(false);
 }
 
 const COLORS = ['#e94560','#0f3460','#533483','#00b4d8','#fb8500','#8338ec','#06d6a0','#ef476f'];
@@ -949,6 +1144,8 @@ class Player {
     const squashW = this.w * (1 + totalSquash * 0.2);
     const squashOff = this.h - squashH;
 
+    const skin = getEquippedSkin();
+
     ctx.save();
     ctx.translate(px, py - squashH/2 + squashOff);
     ctx.rotate(this.rotation);
@@ -960,34 +1157,47 @@ class Player {
     ctx.ellipse(px, py + 2, squashW*0.6, 4, 0, 0, Math.PI*2);
     ctx.fill();
 
-    // 身体 - 用当前角色颜色
-    const charColor = roster ? roster.getCurrent().color : '#fff';
+    // 轮廓描边
+    const bodyX = px - squashW/2, bodyY = py - squashH + squashOff;
+    if (skin.outlineColor) {
+      ctx.fillStyle = skin.outlineColor;
+      ctx.beginPath();
+      ctx.roundRect(bodyX - 1.5, bodyY - 1.5, squashW + 3, squashH + 3, [squashW/2 + 1, squashW/2 + 1, 5, 5]);
+      ctx.fill();
+    }
+
+    // 身体 - 使用皮肤颜色，null 时沿用角色原色
+    const charColor = skin.bodyColor || (roster ? roster.getCurrent().color : '#fff');
     ctx.fillStyle = charColor;
     ctx.beginPath();
-    const bodyX = px - squashW/2, bodyY = py - squashH + squashOff;
     ctx.roundRect(bodyX, bodyY, squashW, squashH, [squashW/2, squashW/2, 4, 4]);
     ctx.fill();
 
-    // 白色内圈
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    // 内圈
+    ctx.fillStyle = skin.innerColor;
     ctx.beginPath();
     ctx.roundRect(bodyX + 3, bodyY + 3, squashW - 6, squashH - 6, [squashW/2 - 3, squashW/2 - 3, 2, 2]);
     ctx.fill();
 
     // 眼睛
-    ctx.fillStyle = '#1a1a2e';
+    ctx.fillStyle = skin.eyeColor;
     const eyeY = bodyY + squashH * 0.35;
     ctx.beginPath();
-    ctx.arc(px - 4, eyeY, 2.5, 0, Math.PI*2);
-    ctx.arc(px + 4, eyeY, 2.5, 0, Math.PI*2);
+    ctx.arc(px - 4, eyeY, skin.eyeSize, 0, Math.PI*2);
+    ctx.arc(px + 4, eyeY, skin.eyeSize, 0, Math.PI*2);
     ctx.fill();
 
     // 高光
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = skin.highlightColor;
     ctx.beginPath();
     ctx.arc(px - 3, eyeY - 1, 1, 0, Math.PI*2);
     ctx.arc(px + 5, eyeY - 1, 1, 0, Math.PI*2);
     ctx.fill();
+
+    // 特效
+    if (skin.effect) {
+      drawSkinEffect(ctx, px, bodyY, squashW, squashH, skin.effect, charColor);
+    }
 
     ctx.restore();
   }
@@ -999,6 +1209,180 @@ const JUMP_DURATION = 800, MIN_JUMP_HEIGHT = 20, MAX_JUMP_HEIGHT = 150;
 const MIN_PLATFORM_W = 38, MAX_PLATFORM_W = 80, PLATFORM_H = 80;
 const CAMERA_LERP = 0.08;
 let jumpCount = 0; // 总跳跃次数，用于解锁难度机制
+
+// === 皮肤系统：全局状态 ===
+let playerCoins = 0;                        // 从服务端同步的金币余额
+let playerUnlockedSkins = ['default'];      // 已解锁皮肤列表
+let playerEquippedSkin = 'default';         // 当前装备皮肤 ID
+let sessionCoins = 0;                       // 当局累计金币（经典模式）
+
+// === 皮肤注册表 ===
+const SKIN_REGISTRY = [
+  {
+    skinId: 'default',
+    name: '默认',
+    price: 0,
+    bodyColor: null,
+    innerColor: 'rgba(255,255,255,0.6)',
+    eyeColor: '#1a1a2e',
+    eyeSize: 2.5,
+    highlightColor: '#fff',
+    outlineColor: null,
+    effect: null
+  },
+  {
+    skinId: 'flame',
+    name: '烈焰',
+    price: 50,
+    bodyColor: '#e74c3c',
+    innerColor: 'rgba(255,165,0,0.6)',
+    eyeColor: '#fff3e0',
+    eyeSize: 2.5,
+    highlightColor: '#ffeb3b',
+    outlineColor: '#b71c1c',
+    effect: 'flame'
+  },
+  {
+    skinId: 'ocean',
+    name: '海洋',
+    price: 50,
+    bodyColor: '#2196f3',
+    innerColor: 'rgba(0,255,255,0.5)',
+    eyeColor: '#e0f7fa',
+    eyeSize: 2.5,
+    highlightColor: '#b3e5fc',
+    outlineColor: '#0d47a1',
+    effect: 'trail'
+  },
+  {
+    skinId: 'forest',
+    name: '森林',
+    price: 30,
+    bodyColor: '#4caf50',
+    innerColor: 'rgba(139,195,74,0.5)',
+    eyeColor: '#1b5e20',
+    eyeSize: 2.5,
+    highlightColor: '#c8e6c9',
+    outlineColor: '#2e7d32',
+    effect: 'sparkle'
+  },
+  {
+    skinId: 'galaxy',
+    name: '星空',
+    price: 80,
+    bodyColor: '#4a148c',
+    innerColor: 'rgba(156,39,176,0.5)',
+    eyeColor: '#e1bee7',
+    eyeSize: 3,
+    highlightColor: '#ce93d8',
+    outlineColor: '#311b92',
+    effect: 'glow'
+  },
+  {
+    skinId: 'candy',
+    name: '糖果',
+    price: 30,
+    bodyColor: '#e91e90',
+    innerColor: 'rgba(255,182,193,0.6)',
+    eyeColor: '#4a148c',
+    eyeSize: 3,
+    highlightColor: '#f8bbd0',
+    outlineColor: '#ad1457',
+    effect: 'sparkle'
+  },
+  {
+    skinId: 'gold',
+    name: '黄金',
+    price: 100,
+    bodyColor: '#ffd700',
+    innerColor: 'rgba(255,215,0,0.5)',
+    eyeColor: '#3e2723',
+    eyeSize: 2.5,
+    highlightColor: '#fff9c4',
+    outlineColor: '#f57f17',
+    effect: 'glow'
+  },
+  {
+    skinId: 'frost',
+    name: '冰霜',
+    price: 60,
+    bodyColor: '#b3e5fc',
+    innerColor: 'rgba(224,247,250,0.6)',
+    eyeColor: '#01579b',
+    eyeSize: 2.5,
+    highlightColor: '#e0f7fa',
+    outlineColor: '#0288d1',
+    effect: 'trail'
+  }
+];
+
+// === 皮肤工具函数 ===
+function getSkinById(skinId) {
+  const skin = SKIN_REGISTRY.find(s => s.skinId === skinId);
+  return skin || SKIN_REGISTRY.find(s => s.skinId === 'default');
+}
+
+function getEquippedSkin() {
+  return getSkinById(playerEquippedSkin);
+}
+
+function pointsToCoins(points) {
+  if (points === 50) return 5;
+  if (points === 20) return 2;
+  if (points === 10) return 1;
+  return 0;
+}
+
+function drawSkinEffect(c, px, bodyY, w, h, effect, color) {
+  const t = Date.now();
+  switch (effect) {
+    case 'flame': {
+      for (let i = 0; i < 3; i++) {
+        const ox = (Math.sin(t / 200 + i * 2) * w * 0.3);
+        const oy = -h - 4 - Math.abs(Math.sin(t / 150 + i)) * 8;
+        const r = 2 + Math.sin(t / 100 + i) * 1;
+        c.fillStyle = `rgba(255,${100 + i * 50},0,${0.5 + Math.sin(t / 200 + i) * 0.3})`;
+        c.beginPath();
+        c.arc(px + ox, bodyY + oy, r, 0, Math.PI * 2);
+        c.fill();
+      }
+      break;
+    }
+    case 'trail': {
+      for (let i = 0; i < 4; i++) {
+        const ox = Math.sin(t / 300 + i * 1.5) * w * 0.4;
+        const oy = h + 2 + i * 3;
+        c.fillStyle = `rgba(0,200,255,${0.3 - i * 0.06})`;
+        c.beginPath();
+        c.arc(px + ox, bodyY + oy, 2 - i * 0.3, 0, Math.PI * 2);
+        c.fill();
+      }
+      break;
+    }
+    case 'sparkle': {
+      for (let i = 0; i < 4; i++) {
+        const angle = t / 500 + i * Math.PI / 2;
+        const dist = w * 0.6 + Math.sin(t / 200 + i) * 3;
+        const sx = px + Math.cos(angle) * dist;
+        const sy = bodyY + h / 2 + Math.sin(angle) * h * 0.4;
+        const alpha = 0.4 + Math.sin(t / 150 + i * 2) * 0.4;
+        c.fillStyle = `rgba(255,255,200,${Math.max(0, alpha)})`;
+        c.beginPath();
+        c.arc(sx, sy, 1.5, 0, Math.PI * 2);
+        c.fill();
+      }
+      break;
+    }
+    case 'glow': {
+      const pulse = 0.15 + Math.sin(t / 400) * 0.1;
+      c.fillStyle = `rgba(200,150,255,${pulse})`;
+      c.beginPath();
+      c.ellipse(px, bodyY + h / 2, w * 0.8, h * 0.6, 0, 0, Math.PI * 2);
+      c.fill();
+      break;
+    }
+  }
+}
 
 // === StatusBar ===
 
@@ -1075,6 +1459,7 @@ function generateNextPlatform(basePlatform) {
 
 function initGame(isTestMode) {
   testMode = isTestMode || false;
+  sessionCoins = 0;
   particles = [];
   charging = false;
   chargeStart = 0;
@@ -1122,6 +1507,7 @@ function rebuildOverlayHTML() {
     <button id="testModeBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#0f3460;color:#fff;cursor:pointer;margin-top:10px;">测试模式</button>
     <button id="arenaModeBtn" style="padding:12px 40px;font-size:20px;border:none;border-radius:8px;background:#533483;color:#fff;cursor:pointer;margin-top:10px;">竞技模式</button>
     <button id="leaderboardBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#fb8500;color:#fff;cursor:pointer;margin-top:10px;">🏆 排行榜</button>
+    <button id="skinStoreBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#e91e63;color:#fff;cursor:pointer;margin-top:10px;">🎨 皮肤商店</button>
     <button id="homeBtn" style="padding:8px 30px;font-size:16px;border:none;border-radius:8px;background:#555;color:#fff;cursor:pointer;margin-top:10px;display:none;">返回首页</button>
     <div id="highScoreArea" style="margin-top:16px;text-align:center;">
       <div id="highScoreDisplay" style="color:#ffd700;font-size:16px;"></div>
@@ -1129,6 +1515,7 @@ function rebuildOverlayHTML() {
     </div>
     <div id="authArea" style="margin-top:14px;text-align:center;">
       ${loggedIn ? `
+        <div style="color:#ffd700;font-size:14px;margin-bottom:4px;">🪙 ${playerCoins} 金币</div>
         <div style="color:#06d6a0;font-size:14px;">👤 ${loggedIn} <span id="logoutBtn" style="cursor:pointer;color:#aaa;font-size:12px;margin-left:6px;">退出</span></div>
       ` : `
         <div id="authForm">
@@ -1153,6 +1540,10 @@ function rebuildOverlayHTML() {
   });
   document.getElementById('leaderboardBtn').addEventListener('click', function() {
     showLeaderboard();
+  });
+  document.getElementById('skinStoreBtn').addEventListener('click', function() {
+    if (!getLoggedInUser()) { alert('请先登录'); return; }
+    showSkinStore();
   });
   document.getElementById('homeBtn').addEventListener('click', function() {
     gameRunning = false; falling = false; jumpAnim = null; slipping = false; fallToBase = null; showOverlay(false);
@@ -1195,9 +1586,22 @@ function showOverlay(isGameOver) {
       submitScore('classic', totalScore);
     }
     charResultsEl.style.display = 'block';
-    charResultsEl.innerHTML = roster.characters.map(c =>
+    let resultsHTML = roster.characters.map(c =>
       `<div style="color:${c.color}">${c.name}: ${c.score}分 ${c.alive ? '' : '(淘汰)'}</div>`
     ).join('');
+    // 金币结算显示
+    if (!testMode) {
+      if (getLoggedInUser()) {
+        resultsHTML += `<div style="color:#ffd700;margin-top:8px;font-size:18px;">🪙 本局金币：+${sessionCoins}</div>`;
+        // 提交金币到服务端
+        if (sessionCoins > 0) {
+          submitCoins(sessionCoins);
+        }
+      } else {
+        resultsHTML += `<div style="color:#aaa;margin-top:8px;font-size:13px;">登录后可获得金币</div>`;
+      }
+    }
+    charResultsEl.innerHTML = resultsHTML;
     startBtn.textContent = '重新开始';
     testModeBtn.style.display = 'none';
     homeBtn.style.display = '';
@@ -1240,6 +1644,11 @@ document.getElementById('arenaModeBtn').addEventListener('click', function() {
 
 document.getElementById('leaderboardBtn').addEventListener('click', function() {
   showLeaderboard();
+});
+
+document.getElementById('skinStoreBtn').addEventListener('click', function() {
+  if (!getLoggedInUser()) { alert('请先登录'); return; }
+  showSkinStore();
 });
 
 backBtn.addEventListener('click', function() {
@@ -1597,6 +2006,7 @@ function handleLanding(platform, platformIdx, landX, landY) {
   const points = landedOnNewPlatform ? calculateScore(dist, maxR) : 0;
   const cur = roster.getCurrent();
   if (points > 0) cur.addScore(points);
+  if (points > 0 && getLoggedInUser()) sessionCoins += pointsToCoins(points);
   if (landedOnNewPlatform) jumpCount++;
 
   // 40关通关判定
@@ -2142,11 +2552,11 @@ async function arenaConnect(action) {
 
   const name = getPlayerName() || '玩家';
   if (action === 'create') {
-    arenaNet.send({ type: 'create_room', playerName: name });
+    arenaNet.send({ type: 'create_room', playerName: name, skinId: playerEquippedSkin });
   } else {
     const code = document.getElementById('arenaCodeInput').value.trim().toUpperCase();
     if (!code || code.length !== 4) { statusEl.textContent = '请输入4位房间码'; return; }
-    arenaNet.send({ type: 'join_room', roomCode: code, playerName: name });
+    arenaNet.send({ type: 'join_room', roomCode: code, playerName: name, skinId: playerEquippedSkin });
   }
 }
 
@@ -2322,6 +2732,12 @@ function arenaGetPlayerColor(playerId) {
   return p ? p.color : '#fff';
 }
 
+function arenaGetPlayerSkinId(playerId) {
+  if (!arenaRoomState) return 'default';
+  const p = arenaRoomState.players.find(x => x.id === playerId);
+  return p ? (p.skinId || 'default') : 'default';
+}
+
 // === 竞技模式：游戏控制器 ===
 
 function arenaStartGame(seed, turnOrder) {
@@ -2467,6 +2883,7 @@ function arenaOnGhostJump(playerId, platformIndex, chargePower) {
   const to = arenaRacetrack[toIdx].getTopCenter();
   arenaGhosts.push({
     playerId, color: arenaGetPlayerColor(playerId), name: arenaGetPlayerName(playerId),
+    skinId: arenaGetPlayerSkinId(playerId),
     startX: from.x, startY: from.y, targetX: to.x, targetY: to.y,
     progress: 0, duration: 600, height: 40 + chargePower * 110
   });
@@ -2972,7 +3389,7 @@ function arenaRenderGhosts(ox, oy) {
     const tc = arenaRacetrack[platIdx].getTopCenter();
     const gx = tc.x - ox, gy = tc.y - oy;
     ctx.globalAlpha = 0.5;
-    arenaDrawCharacter(gx, gy, arenaGetPlayerColor(pid));
+    arenaDrawCharacter(gx, gy, arenaGetPlayerColor(pid), arenaGetPlayerSkinId(pid));
     // 状态效果
     arenaDrawStatusEffects(gx, gy, state);
     // 名字
@@ -3010,7 +3427,7 @@ function arenaRenderGhosts(ox, oy) {
     ctx.translate(gx, gy - 20);
     ctx.rotate(rotation);
     ctx.translate(-gx, -(gy - 20));
-    arenaDrawCharacter(gx, gy, g.color);
+    arenaDrawCharacter(gx, gy, g.color, g.skinId || 'default');
     ctx.restore();
     // 名字
     ctx.fillStyle = '#fff';
@@ -3022,36 +3439,49 @@ function arenaRenderGhosts(ox, oy) {
 }
 
 // 绘制角色（与Player.draw一致的风格）
-function arenaDrawCharacter(px, py, color) {
+function arenaDrawCharacter(px, py, color, skinId) {
+  const skin = getSkinById(skinId || 'default');
   const w = 20, h = 40;
   // 阴影
   ctx.fillStyle = 'rgba(0,0,0,0.15)';
   ctx.beginPath();
   ctx.ellipse(px, py + 2, w * 0.6, 4, 0, 0, Math.PI * 2);
   ctx.fill();
+  // 轮廓
+  if (skin.outlineColor) {
+    ctx.fillStyle = skin.outlineColor;
+    ctx.beginPath();
+    ctx.roundRect(px - w / 2 - 1.5, py - h - 1.5, w + 3, h + 3, [w / 2 + 1, w / 2 + 1, 5, 5]);
+    ctx.fill();
+  }
   // 身体
-  ctx.fillStyle = color;
+  const bodyColor = skin.bodyColor || color;
+  ctx.fillStyle = bodyColor;
   ctx.beginPath();
   ctx.roundRect(px - w / 2, py - h, w, h, [w / 2, w / 2, 4, 4]);
   ctx.fill();
-  // 白色内圈
-  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  // 内圈
+  ctx.fillStyle = skin.innerColor;
   ctx.beginPath();
   ctx.roundRect(px - w / 2 + 3, py - h + 3, w - 6, h - 6, [w / 2 - 3, w / 2 - 3, 2, 2]);
   ctx.fill();
   // 眼睛
-  ctx.fillStyle = '#1a1a2e';
+  ctx.fillStyle = skin.eyeColor;
   const eyeY = py - h + h * 0.35;
   ctx.beginPath();
-  ctx.arc(px - 4, eyeY, 2.5, 0, Math.PI * 2);
-  ctx.arc(px + 4, eyeY, 2.5, 0, Math.PI * 2);
+  ctx.arc(px - 4, eyeY, skin.eyeSize, 0, Math.PI * 2);
+  ctx.arc(px + 4, eyeY, skin.eyeSize, 0, Math.PI * 2);
   ctx.fill();
   // 高光
-  ctx.fillStyle = '#fff';
+  ctx.fillStyle = skin.highlightColor;
   ctx.beginPath();
   ctx.arc(px - 3, eyeY - 1, 1, 0, Math.PI * 2);
   ctx.arc(px + 5, eyeY - 1, 1, 0, Math.PI * 2);
   ctx.fill();
+  // 特效
+  if (skin.effect) {
+    drawSkinEffect(ctx, px, py - h, w, h, skin.effect, bodyColor);
+  }
 }
 
 // 绘制玩家状态效果（监狱、护盾、冻结等）
