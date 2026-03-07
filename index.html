@@ -3503,7 +3503,7 @@ function arenaStartGame(seed, turnOrder) {
   for (const pid of turnOrder) {
     arenaPlayerStates.set(pid, {
       platformIndex: 1,
-      items: [],
+      items: pid === arenaLocalPlayerId ? ['shield'] : [],
       skipTurns: 0,
       hasShield: false,
       totalJumps: 0,
@@ -3664,6 +3664,8 @@ function arenaOnMysteryResult(msg) {
     arenaShowPopup('获得道具: ' + arenaItemName(msg.item), '#ffd700');
     const state = arenaPlayerStates.get(msg.playerId);
     if (state && state.items.length < 2) state.items.push(msg.item);
+  } else if (msg.resultType === 'item_full') {
+    arenaShowPopup('道具栏已满', '#aaa');
   } else if (msg.resultType === 'shielded') {
     arenaShowPopup('护盾抵消了 ' + msg.event.name, '#00b4d8');
   }
@@ -4167,13 +4169,18 @@ function arenaRenderHUD() {
         ctx.font = '9px sans-serif';
         ctx.fillText(arenaItemName(localState.items[i]), ix + 20, itemY + 34);
       } else {
-        ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.25)';
         ctx.setLineDash([3, 3]);
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.roundRect(ix, itemY, 40, 40, 6);
         ctx.stroke();
         ctx.setLineDash([]);
+        // 空槽提示
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.font = '18px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('+', ix + 20, itemY + 26);
       }
     }
   }

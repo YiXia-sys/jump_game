@@ -646,14 +646,19 @@ function applyEvent(room, event, triggerPlayerId) {
     case 'jail':
       if (triggerPlayer) {
         triggerPlayer.skipTurns = 2;
-        room.currentTurnQuota = 0; // 清空当前剩余步数
+        // 只在仍是该玩家的回合时清空步数
+        if (room.turnOrder[room.currentTurnIndex] === triggerPlayerId) {
+          room.currentTurnQuota = 0;
+        }
         effects.push({ playerId: triggerPlayerId, effect: 'jail', skipTurns: 2, clearQuota: true });
       }
       break;
     case 'hospital':
       if (triggerPlayer) {
-        // 医院：不跳过回合，而是额外增加一次投掷机会（+3步数）
-        room.currentTurnQuota += 3;
+        // 医院：额外增加步数（仅在仍是该玩家的回合时）
+        if (room.turnOrder[room.currentTurnIndex] === triggerPlayerId) {
+          room.currentTurnQuota += 3;
+        }
         triggerPlayer.diceModifier = { type: 'add', value: 2, remainingTurns: 1 };
         effects.push({ playerId: triggerPlayerId, effect: 'hospital', bonusQuota: 3 });
       }
@@ -715,8 +720,8 @@ function triggerMysteryPlatform(room, playerId) {
   if (!player) return null;
   player.eventsTriggered++;
 
-  // 70% 事件, 30% 道具
-  if (Math.random() < 0.7) {
+  // 50% 事件, 50% 道具
+  if (Math.random() < 0.5) {
     // 抽事件（防连续相同）
     const lastEvent = room.lastEvents.get(playerId);
     let available = ARENA_EVENTS.filter(e => e.type !== lastEvent);
@@ -804,7 +809,7 @@ function startGame(room) {
   room.lastEvents.clear();
   for (const [id, p] of room.players) {
     p.platformIndex = 1;
-    p.items = [];
+    p.items = ['shield'];
     p.skipTurns = 0;
     p.diceModifier = null;
     p.hasShield = false;
@@ -1171,8 +1176,8 @@ function handleMessage(ws, msg) {
           }
           if (result.winner) {
             endGame(room, result.winner);
-          } else if (room.currentTurnQuota <= 0) {
-            // 事件清空了步数（如监狱），结束回合
+          } else if (room.currentTurnQuota <= 0 && room.turnOrder[room.currentTurnIndex] === playerId) {
+            // 事件清空了步数（如监狱），且仍是该玩家的回合，才结束回合
             const p = room.players.get(playerId);
             if (p) p.autoLandRemaining = 0;
             advanceTurn(room);
