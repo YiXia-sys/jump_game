@@ -479,8 +479,21 @@ function drawSkinPreview(cvs, skin) {
   const c = cvs.getContext('2d');
   const w = cvs.width, h = cvs.height;
   c.clearRect(0, 0, w, h);
-  const px = w / 2, py = h - 10;
+  const px = w / 2, py = h - 6;
   const bw = 16, bh = 32;
+
+  if (skin.type === 'advanced') {
+    drawAdvancedChar(c, px, py, skin, bw, bh, 0);
+    // 特效标记
+    if (skin.effect) {
+      c.font = '10px sans-serif';
+      c.textAlign = 'center';
+      const effectIcons = { flame: '🔥', trail: '💧', sparkle: '✨', glow: '💫' };
+      c.fillText(effectIcons[skin.effect] || '⭐', px, 8);
+    }
+    return;
+  }
+
   const bodyColor = skin.bodyColor || '#e94560';
   // 阴影
   c.fillStyle = 'rgba(0,0,0,0.15)';
@@ -532,15 +545,22 @@ async function showSkinStore() {
   await fetchCoinBalance();
   await fetchSkinData();
   overlay.innerHTML = `
-    <div style="width:90%;max-width:480px;max-height:90vh;overflow-y:auto;text-align:center;">
-      <h2 style="font-size:24px;margin-bottom:6px;">🎨 皮肤商店</h2>
-      <div style="color:#ffd700;font-size:16px;margin-bottom:12px;">🪙 ${playerCoins} 金币</div>
-      <div id="skinGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;"></div>
-      <button id="skinStoreBackBtn" style="padding:8px 24px;font-size:14px;border:none;border-radius:8px;background:#555;color:#fff;cursor:pointer;margin-top:14px;">返回</button>
+    <div style="width:90%;max-width:520px;max-height:90vh;overflow-y:auto;text-align:center;position:relative;padding:0 8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <button id="skinStoreBackBtn" style="padding:6px 16px;font-size:14px;border:none;border-radius:8px;background:#555;color:#fff;cursor:pointer;">← 返回</button>
+        <h2 style="font-size:24px;margin:0;">🎨 皮肤商店</h2>
+        <div style="color:#ffd700;font-size:14px;">🪙 ${playerCoins}</div>
+      </div>
+      <div style="color:#aaa;font-size:13px;margin:8px 0 4px;">— 基础皮肤 —</div>
+      <div id="skinGridBasic" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;"></div>
+      <div style="color:#aaa;font-size:13px;margin:12px 0 4px;">— 进阶皮肤 —</div>
+      <div id="skinGridAdv" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;"></div>
     </div>
   `;
-  const grid = document.getElementById('skinGrid');
+  const basicGrid = document.getElementById('skinGridBasic');
+  const advGrid = document.getElementById('skinGridAdv');
   SKIN_REGISTRY.forEach(skin => {
+    const grid = skin.type === 'advanced' ? advGrid : basicGrid;
     const state = getSkinButtonState(skin.skinId);
     const card = document.createElement('div');
     card.style.cssText = 'background:rgba(255,255,255,0.08);border-radius:10px;padding:8px;text-align:center;cursor:pointer;transition:transform 0.15s;';
@@ -607,7 +627,11 @@ async function showSkinStore() {
     card.addEventListener('mouseleave', () => { card.style.transform = 'scale(1)'; });
     grid.appendChild(card);
   });
-  document.getElementById('skinStoreBackBtn').onclick = () => closeSkinStore();
+  document.getElementById('skinStoreBackBtn').addEventListener('click', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    closeSkinStore();
+  });
 }
 
 function closeSkinStore() {
@@ -1176,6 +1200,12 @@ class Player {
     ctx.rotate(this.rotation);
     ctx.translate(-px, -(py - squashH/2 + squashOff));
 
+    if (skin.type === 'advanced') {
+      drawAdvancedChar(ctx, px, py + squashOff, skin, squashW, squashH, this.rotation);
+      ctx.restore();
+      return;
+    }
+
     // 阴影
     ctx.fillStyle = 'rgba(0,0,0,0.15)';
     ctx.beginPath();
@@ -1244,100 +1274,136 @@ let sessionCoins = 0;                       // 当局累计金币（经典模式
 // === 皮肤注册表 ===
 const SKIN_REGISTRY = [
   {
-    skinId: 'default',
-    name: '默认',
-    price: 0,
-    bodyColor: null,
-    innerColor: 'rgba(255,255,255,0.6)',
-    eyeColor: '#1a1a2e',
-    eyeSize: 2.5,
-    highlightColor: '#fff',
-    outlineColor: null,
-    effect: null
+    skinId: 'default', name: '默认', price: 0, type: 'basic',
+    bodyColor: null, innerColor: 'rgba(255,255,255,0.6)', eyeColor: '#1a1a2e',
+    eyeSize: 2.5, highlightColor: '#fff', outlineColor: null, effect: null
   },
   {
-    skinId: 'flame',
-    name: '烈焰',
-    price: 50,
-    bodyColor: '#e74c3c',
-    innerColor: 'rgba(255,165,0,0.6)',
-    eyeColor: '#fff3e0',
-    eyeSize: 2.5,
-    highlightColor: '#ffeb3b',
-    outlineColor: '#b71c1c',
-    effect: 'flame'
+    skinId: 'flame', name: '烈焰', price: 50, type: 'basic',
+    bodyColor: '#e74c3c', innerColor: 'rgba(255,165,0,0.6)', eyeColor: '#fff3e0',
+    eyeSize: 2.5, highlightColor: '#ffeb3b', outlineColor: '#b71c1c', effect: 'flame'
   },
   {
-    skinId: 'ocean',
-    name: '海洋',
-    price: 50,
-    bodyColor: '#2196f3',
-    innerColor: 'rgba(0,255,255,0.5)',
-    eyeColor: '#e0f7fa',
-    eyeSize: 2.5,
-    highlightColor: '#b3e5fc',
-    outlineColor: '#0d47a1',
-    effect: 'trail'
+    skinId: 'ocean', name: '海洋', price: 50, type: 'basic',
+    bodyColor: '#2196f3', innerColor: 'rgba(0,255,255,0.5)', eyeColor: '#e0f7fa',
+    eyeSize: 2.5, highlightColor: '#b3e5fc', outlineColor: '#0d47a1', effect: 'trail'
   },
   {
-    skinId: 'forest',
-    name: '森林',
-    price: 30,
-    bodyColor: '#4caf50',
-    innerColor: 'rgba(139,195,74,0.5)',
-    eyeColor: '#1b5e20',
-    eyeSize: 2.5,
-    highlightColor: '#c8e6c9',
-    outlineColor: '#2e7d32',
-    effect: 'sparkle'
+    skinId: 'forest', name: '森林', price: 30, type: 'basic',
+    bodyColor: '#4caf50', innerColor: 'rgba(139,195,74,0.5)', eyeColor: '#1b5e20',
+    eyeSize: 2.5, highlightColor: '#c8e6c9', outlineColor: '#2e7d32', effect: 'sparkle'
   },
   {
-    skinId: 'galaxy',
-    name: '星空',
-    price: 80,
-    bodyColor: '#4a148c',
-    innerColor: 'rgba(156,39,176,0.5)',
-    eyeColor: '#e1bee7',
-    eyeSize: 3,
-    highlightColor: '#ce93d8',
-    outlineColor: '#311b92',
-    effect: 'glow'
+    skinId: 'galaxy', name: '星空', price: 80, type: 'basic',
+    bodyColor: '#4a148c', innerColor: 'rgba(156,39,176,0.5)', eyeColor: '#e1bee7',
+    eyeSize: 3, highlightColor: '#ce93d8', outlineColor: '#311b92', effect: 'glow'
   },
   {
-    skinId: 'candy',
-    name: '糖果',
-    price: 30,
-    bodyColor: '#e91e90',
-    innerColor: 'rgba(255,182,193,0.6)',
-    eyeColor: '#4a148c',
-    eyeSize: 3,
-    highlightColor: '#f8bbd0',
-    outlineColor: '#ad1457',
-    effect: 'sparkle'
+    skinId: 'candy', name: '糖果', price: 30, type: 'basic',
+    bodyColor: '#e91e90', innerColor: 'rgba(255,182,193,0.6)', eyeColor: '#4a148c',
+    eyeSize: 3, highlightColor: '#f8bbd0', outlineColor: '#ad1457', effect: 'sparkle'
   },
   {
-    skinId: 'gold',
-    name: '黄金',
-    price: 100,
-    bodyColor: '#ffd700',
-    innerColor: 'rgba(255,215,0,0.5)',
-    eyeColor: '#3e2723',
-    eyeSize: 2.5,
-    highlightColor: '#fff9c4',
-    outlineColor: '#f57f17',
-    effect: 'glow'
+    skinId: 'gold', name: '黄金', price: 100, type: 'basic',
+    bodyColor: '#ffd700', innerColor: 'rgba(255,215,0,0.5)', eyeColor: '#3e2723',
+    eyeSize: 2.5, highlightColor: '#fff9c4', outlineColor: '#f57f17', effect: 'glow'
   },
   {
-    skinId: 'frost',
-    name: '冰霜',
-    price: 60,
-    bodyColor: '#b3e5fc',
-    innerColor: 'rgba(224,247,250,0.6)',
-    eyeColor: '#01579b',
-    eyeSize: 2.5,
-    highlightColor: '#e0f7fa',
-    outlineColor: '#0288d1',
-    effect: 'trail'
+    skinId: 'frost', name: '冰霜', price: 60, type: 'basic',
+    bodyColor: '#b3e5fc', innerColor: 'rgba(224,247,250,0.6)', eyeColor: '#01579b',
+    eyeSize: 2.5, highlightColor: '#e0f7fa', outlineColor: '#0288d1', effect: 'trail'
+  },
+  // === 进阶皮肤（人形角色） ===
+  {
+    skinId: 'cowboy', name: '牛仔', price: 150, type: 'advanced',
+    headColor: '#f5cba7', hatColor: '#8b4513', hatBrim: true,
+    bodyColor: '#a0522d', beltColor: '#ffd700', beltBuckle: true,
+    legColor: '#4a2c0a', bootColor: '#3e2723',
+    eyeColor: '#1a1a2e', accessory: 'hat', effect: null
+  },
+  {
+    skinId: 'doctor', name: '医生', price: 150, type: 'advanced',
+    headColor: '#f5cba7', hatColor: '#fff', hatBrim: false,
+    bodyColor: '#ffffff', beltColor: '#2196f3', beltBuckle: false,
+    legColor: '#e0e0e0', bootColor: '#455a64',
+    eyeColor: '#1a1a2e', accessory: 'cross', effect: null
+  },
+  {
+    skinId: 'girl', name: '少女', price: 180, type: 'advanced',
+    headColor: '#fce4ec', hatColor: '#e91e63', hatBrim: false,
+    bodyColor: '#f48fb1', beltColor: '#e91e63', beltBuckle: false,
+    legColor: '#fce4ec', bootColor: '#e91e63',
+    eyeColor: '#880e4f', accessory: 'bow', effect: 'sparkle'
+  },
+  {
+    skinId: 'ninja', name: '忍者', price: 200, type: 'advanced',
+    headColor: '#37474f', hatColor: '#263238', hatBrim: false,
+    bodyColor: '#263238', beltColor: '#f44336', beltBuckle: false,
+    legColor: '#37474f', bootColor: '#212121',
+    eyeColor: '#fff', accessory: 'mask', effect: null
+  },
+  {
+    skinId: 'chef', name: '厨师', price: 160, type: 'advanced',
+    headColor: '#f5cba7', hatColor: '#fff', hatBrim: false,
+    bodyColor: '#ffffff', beltColor: '#000', beltBuckle: false,
+    legColor: '#424242', bootColor: '#212121',
+    eyeColor: '#1a1a2e', accessory: 'chefhat', effect: null
+  },
+  {
+    skinId: 'pirate', name: '海盗', price: 220, type: 'advanced',
+    headColor: '#f5cba7', hatColor: '#1a1a2e', hatBrim: true,
+    bodyColor: '#d32f2f', beltColor: '#ffd700', beltBuckle: true,
+    legColor: '#5d4037', bootColor: '#3e2723',
+    eyeColor: '#1a1a2e', accessory: 'eyepatch', effect: 'flame'
+  },
+  {
+    skinId: 'astronaut', name: '宇航员', price: 250, type: 'advanced',
+    headColor: '#b0bec5', hatColor: '#cfd8dc', hatBrim: false,
+    bodyColor: '#eceff1', beltColor: '#ff9800', beltBuckle: false,
+    legColor: '#b0bec5', bootColor: '#78909c',
+    eyeColor: '#00bcd4', accessory: 'helmet', effect: 'glow'
+  },
+  {
+    skinId: 'knight', name: '骑士', price: 280, type: 'advanced',
+    headColor: '#9e9e9e', hatColor: '#757575', hatBrim: false,
+    bodyColor: '#9e9e9e', beltColor: '#ffd700', beltBuckle: true,
+    legColor: '#757575', bootColor: '#616161',
+    eyeColor: '#1a1a2e', accessory: 'visor', effect: 'glow'
+  },
+  {
+    skinId: 'witch', name: '女巫', price: 200, type: 'advanced',
+    headColor: '#e8d5b7', hatColor: '#4a148c', hatBrim: true,
+    bodyColor: '#6a1b9a', beltColor: '#ffd700', beltBuckle: false,
+    legColor: '#4a148c', bootColor: '#311b92',
+    eyeColor: '#76ff03', accessory: 'witchhat', effect: 'sparkle'
+  },
+  {
+    skinId: 'soldier', name: '军人', price: 180, type: 'advanced',
+    headColor: '#f5cba7', hatColor: '#4caf50', hatBrim: false,
+    bodyColor: '#388e3c', beltColor: '#5d4037', beltBuckle: true,
+    legColor: '#2e7d32', bootColor: '#1b5e20',
+    eyeColor: '#1a1a2e', accessory: 'beret', effect: null
+  },
+  {
+    skinId: 'princess', name: '公主', price: 300, type: 'advanced',
+    headColor: '#fce4ec', hatColor: '#ffd700', hatBrim: false,
+    bodyColor: '#ce93d8', beltColor: '#ffd700', beltBuckle: false,
+    legColor: '#e1bee7', bootColor: '#ab47bc',
+    eyeColor: '#4a148c', accessory: 'crown', effect: 'sparkle'
+  },
+  {
+    skinId: 'robot', name: '机器人', price: 350, type: 'advanced',
+    headColor: '#78909c', hatColor: '#546e7a', hatBrim: false,
+    bodyColor: '#607d8b', beltColor: '#00e676', beltBuckle: false,
+    legColor: '#546e7a', bootColor: '#455a64',
+    eyeColor: '#00e5ff', accessory: 'antenna', effect: 'glow'
+  },
+  {
+    skinId: 'vampire', name: '吸血鬼', price: 320, type: 'advanced',
+    headColor: '#e0e0e0', hatColor: '#1a1a2e', hatBrim: false,
+    bodyColor: '#1a1a2e', beltColor: '#f44336', beltBuckle: false,
+    legColor: '#212121', bootColor: '#000',
+    eyeColor: '#f44336', accessory: 'cape', effect: 'flame'
   }
 ];
 
@@ -1406,6 +1472,257 @@ function drawSkinEffect(c, px, bodyY, w, h, effect, color) {
       c.fill();
       break;
     }
+  }
+}
+
+// === 进阶皮肤：人形角色绘制 ===
+function drawAdvancedChar(c, px, py, skin, w, h, rotation) {
+  // py = 脚底, w = 角色宽度, h = 角色高度
+  const headR = w * 0.4;
+  const bodyH = h * 0.38;
+  const legH = h * 0.28;
+  const headY = py - h + headR;
+  const bodyTop = py - h + headR * 2;
+  const bodyBot = bodyTop + bodyH;
+  const legBot = py;
+
+  // 阴影
+  c.fillStyle = 'rgba(0,0,0,0.15)';
+  c.beginPath();
+  c.ellipse(px, py + 2, w * 0.5, 3, 0, 0, Math.PI * 2);
+  c.fill();
+
+  // 披风（在身体后面先画）
+  if (skin.accessory === 'cape') {
+    c.fillStyle = '#b71c1c';
+    c.beginPath();
+    c.moveTo(px - w * 0.4, bodyTop + 2);
+    c.lineTo(px - w * 0.55, legBot + 2);
+    c.lineTo(px + w * 0.55, legBot + 2);
+    c.lineTo(px + w * 0.4, bodyTop + 2);
+    c.closePath();
+    c.fill();
+  }
+
+  // 腿
+  const legW = w * 0.22;
+  const legGap = w * 0.12;
+  c.fillStyle = skin.legColor;
+  c.fillRect(px - legGap - legW, bodyBot, legW, legH);
+  c.fillRect(px + legGap, bodyBot, legW, legH);
+  // 靴子
+  c.fillStyle = skin.bootColor;
+  const bootH = legH * 0.3;
+  c.beginPath();
+  c.roundRect(px - legGap - legW - 1, legBot - bootH, legW + 2, bootH, [0, 0, 3, 3]);
+  c.fill();
+  c.beginPath();
+  c.roundRect(px + legGap - 1, legBot - bootH, legW + 2, bootH, [0, 0, 3, 3]);
+  c.fill();
+
+  // 身体
+  c.fillStyle = skin.bodyColor;
+  c.beginPath();
+  c.roundRect(px - w * 0.4, bodyTop, w * 0.8, bodyH, [2, 2, 0, 0]);
+  c.fill();
+  // 腰带
+  if (skin.beltColor) {
+    c.fillStyle = skin.beltColor;
+    c.fillRect(px - w * 0.4, bodyBot - 4, w * 0.8, 4);
+    if (skin.beltBuckle) {
+      c.fillStyle = '#ffd700';
+      c.fillRect(px - 2, bodyBot - 5, 4, 5);
+    }
+  }
+  // 医生红十字
+  if (skin.accessory === 'cross') {
+    c.fillStyle = '#f44336';
+    c.fillRect(px - 2, bodyTop + bodyH * 0.2, 4, bodyH * 0.5);
+    c.fillRect(px - 5, bodyTop + bodyH * 0.35, 10, 3);
+  }
+
+  // 头
+  c.fillStyle = skin.headColor;
+  c.beginPath();
+  c.arc(px, headY, headR, 0, Math.PI * 2);
+  c.fill();
+
+  // 眼睛
+  c.fillStyle = skin.eyeColor;
+  c.beginPath();
+  c.arc(px - headR * 0.35, headY - 1, 1.8, 0, Math.PI * 2);
+  c.arc(px + headR * 0.35, headY - 1, 1.8, 0, Math.PI * 2);
+  c.fill();
+  // 高光
+  c.fillStyle = '#fff';
+  c.beginPath();
+  c.arc(px - headR * 0.25, headY - 2, 0.7, 0, Math.PI * 2);
+  c.arc(px + headR * 0.45, headY - 2, 0.7, 0, Math.PI * 2);
+  c.fill();
+
+  // 配饰
+  const acc = skin.accessory;
+  if (acc === 'hat' || acc === 'witchhat') {
+    // 牛仔帽/女巫帽
+    c.fillStyle = skin.hatColor;
+    if (acc === 'witchhat') {
+      // 尖帽
+      c.beginPath();
+      c.moveTo(px, headY - headR - 14);
+      c.lineTo(px - headR * 1.1, headY - headR + 2);
+      c.lineTo(px + headR * 1.1, headY - headR + 2);
+      c.closePath();
+      c.fill();
+    } else {
+      // 牛仔帽顶
+      c.beginPath();
+      c.roundRect(px - headR * 0.6, headY - headR - 6, headR * 1.2, 8, [3, 3, 0, 0]);
+      c.fill();
+    }
+    // 帽檐
+    if (skin.hatBrim) {
+      c.fillRect(px - headR * 1.2, headY - headR + 1, headR * 2.4, 3);
+    }
+  } else if (acc === 'crown') {
+    c.fillStyle = '#ffd700';
+    const crY = headY - headR - 2;
+    c.beginPath();
+    c.moveTo(px - headR * 0.6, crY + 6);
+    c.lineTo(px - headR * 0.6, crY);
+    c.lineTo(px - headR * 0.3, crY + 3);
+    c.lineTo(px, crY - 2);
+    c.lineTo(px + headR * 0.3, crY + 3);
+    c.lineTo(px + headR * 0.6, crY);
+    c.lineTo(px + headR * 0.6, crY + 6);
+    c.closePath();
+    c.fill();
+    // 宝石
+    c.fillStyle = '#e91e63';
+    c.beginPath();
+    c.arc(px, crY + 2, 1.2, 0, Math.PI * 2);
+    c.fill();
+  } else if (acc === 'helmet') {
+    // 宇航员头盔
+    c.strokeStyle = skin.hatColor;
+    c.lineWidth = 2;
+    c.beginPath();
+    c.arc(px, headY, headR + 3, 0, Math.PI * 2);
+    c.stroke();
+    // 面罩反光
+    c.fillStyle = 'rgba(0,188,212,0.2)';
+    c.beginPath();
+    c.arc(px, headY, headR + 2, 0, Math.PI * 2);
+    c.fill();
+    c.lineWidth = 1;
+  } else if (acc === 'mask') {
+    // 忍者面罩
+    c.fillStyle = skin.hatColor;
+    c.fillRect(px - headR, headY - 2, headR * 2, 6);
+    // 头巾
+    c.beginPath();
+    c.arc(px, headY, headR, Math.PI, 0);
+    c.fill();
+  } else if (acc === 'chefhat') {
+    // 厨师帽
+    c.fillStyle = '#fff';
+    c.beginPath();
+    c.roundRect(px - headR * 0.7, headY - headR - 10, headR * 1.4, 12, [4, 4, 0, 0]);
+    c.fill();
+    c.beginPath();
+    c.arc(px, headY - headR - 10, headR * 0.7, 0, Math.PI * 2);
+    c.fill();
+  } else if (acc === 'bow') {
+    // 蝴蝶结
+    c.fillStyle = skin.hatColor;
+    const bx = px + headR * 0.5, by = headY - headR * 0.6;
+    c.beginPath();
+    c.ellipse(bx - 3, by, 3, 2, -0.3, 0, Math.PI * 2);
+    c.fill();
+    c.beginPath();
+    c.ellipse(bx + 3, by, 3, 2, 0.3, 0, Math.PI * 2);
+    c.fill();
+    c.fillRect(bx - 1, by - 1, 2, 2);
+  } else if (acc === 'eyepatch') {
+    // 海盗眼罩
+    c.fillStyle = '#1a1a2e';
+    c.beginPath();
+    c.arc(px + headR * 0.35, headY - 1, 2.5, 0, Math.PI * 2);
+    c.fill();
+    c.strokeStyle = '#1a1a2e';
+    c.lineWidth = 0.8;
+    c.beginPath();
+    c.moveTo(px - headR, headY - headR * 0.3);
+    c.lineTo(px + headR, headY - headR * 0.3);
+    c.stroke();
+    c.lineWidth = 1;
+    // 帽子
+    c.fillStyle = skin.hatColor;
+    c.beginPath();
+    c.roundRect(px - headR * 0.7, headY - headR - 5, headR * 1.4, 7, [3, 3, 0, 0]);
+    c.fill();
+    if (skin.hatBrim) c.fillRect(px - headR * 1.2, headY - headR + 1, headR * 2.4, 2);
+  } else if (acc === 'visor') {
+    // 骑士面甲
+    c.fillStyle = skin.hatColor;
+    c.beginPath();
+    c.arc(px, headY, headR + 1, 0, Math.PI * 2);
+    c.fill();
+    // T形面甲缝
+    c.strokeStyle = '#424242';
+    c.lineWidth = 1;
+    c.beginPath();
+    c.moveTo(px, headY - headR);
+    c.lineTo(px, headY);
+    c.moveTo(px - headR * 0.5, headY - 1);
+    c.lineTo(px + headR * 0.5, headY - 1);
+    c.stroke();
+    // 眼睛透过面甲
+    c.fillStyle = skin.eyeColor;
+    c.fillRect(px - headR * 0.4, headY - 2, headR * 0.25, 2);
+    c.fillRect(px + headR * 0.15, headY - 2, headR * 0.25, 2);
+  } else if (acc === 'beret') {
+    // 贝雷帽
+    c.fillStyle = skin.hatColor;
+    c.beginPath();
+    c.ellipse(px, headY - headR, headR * 1.1, headR * 0.4, 0, 0, Math.PI * 2);
+    c.fill();
+  } else if (acc === 'antenna') {
+    // 机器人天线
+    c.strokeStyle = '#78909c';
+    c.lineWidth = 1.5;
+    c.beginPath();
+    c.moveTo(px, headY - headR);
+    c.lineTo(px, headY - headR - 8);
+    c.stroke();
+    c.fillStyle = '#00e5ff';
+    c.beginPath();
+    c.arc(px, headY - headR - 9, 2, 0, Math.PI * 2);
+    c.fill();
+    c.lineWidth = 1;
+    // 方形头
+    c.fillStyle = skin.headColor;
+    c.fillRect(px - headR, headY - headR, headR * 2, headR * 2);
+    c.fillStyle = skin.eyeColor;
+    c.fillRect(px - headR * 0.4, headY - 2, 3, 3);
+    c.fillRect(px + headR * 0.15, headY - 2, 3, 3);
+  } else if (acc === 'cape') {
+    // 吸血鬼尖牙（披风已在前面绘制）
+    c.fillStyle = '#fff';
+    c.beginPath();
+    c.moveTo(px - 2, headY + headR * 0.4);
+    c.lineTo(px - 1, headY + headR * 0.8);
+    c.lineTo(px, headY + headR * 0.4);
+    c.fill();
+    c.beginPath();
+    c.moveTo(px + 1, headY + headR * 0.4);
+    c.lineTo(px + 2, headY + headR * 0.8);
+    c.lineTo(px + 3, headY + headR * 0.4);
+    c.fill();
+  }
+
+  // 特效
+  if (skin.effect) {
+    drawSkinEffect(c, px, py - h, w, h, skin.effect, skin.bodyColor);
   }
 }
 
@@ -3490,6 +3807,12 @@ function arenaRenderGhosts(ox, oy) {
 function arenaDrawCharacter(px, py, color, skinId) {
   const skin = getSkinById(skinId || 'default');
   const w = 20, h = 40;
+
+  if (skin.type === 'advanced') {
+    drawAdvancedChar(ctx, px, py, skin, w, h, 0);
+    return;
+  }
+
   // 阴影
   ctx.fillStyle = 'rgba(0,0,0,0.15)';
   ctx.beginPath();

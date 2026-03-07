@@ -67,7 +67,11 @@ function verifyToken(username, token) {
 // === 皮肤系统 ===
 const SKIN_PRICES = {
   'default': 0, 'flame': 50, 'ocean': 50, 'forest': 30,
-  'galaxy': 80, 'candy': 30, 'gold': 100, 'frost': 60
+  'galaxy': 80, 'candy': 30, 'gold': 100, 'frost': 60,
+  'cowboy': 150, 'doctor': 150, 'girl': 180, 'ninja': 200,
+  'chef': 160, 'pirate': 220, 'astronaut': 250, 'knight': 280,
+  'witch': 200, 'soldier': 180, 'princess': 300, 'robot': 350,
+  'vampire': 320
 };
 
 function ensureSkinData(username) {
