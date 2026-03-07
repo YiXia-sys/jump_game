@@ -184,6 +184,7 @@
         <button id="leaderboardBtn" style="flex:1;padding:8px 0;font-size:14px;border:none;border-radius:8px;background:#fb8500;color:#fff;cursor:pointer;">🏆 排行榜</button>
         <button id="skinStoreBtn" style="flex:1;padding:8px 0;font-size:14px;border:none;border-radius:8px;background:#e91e63;color:#fff;cursor:pointer;">🎨 皮肤</button>
       </div>
+      <button id="otherGamesBtn" style="width:100%;padding:8px 0;font-size:14px;border:none;border-radius:8px;background:rgba(255,255,255,0.1);color:#aaa;cursor:pointer;border:1px dashed rgba(255,255,255,0.2);">🎲 其他游戏</button>
       <button id="homeBtn" style="padding:8px 30px;font-size:14px;border:none;border-radius:8px;background:#555;color:#fff;cursor:pointer;display:none;">返回首页</button>
     </div>
     <div id="highScoreArea" style="margin-top:12px;text-align:center;">
@@ -849,6 +850,21 @@ function drawSkinPreview(cvs, skin) {
     const effectIcons = { flame: '🔥', trail: '💧', sparkle: '✨', glow: '💫', rainbow: '🌈' };
     c.fillText(effectIcons[skin.effect] || '⭐', px, py - bh - 6);
   }
+}
+
+function showOtherGames() {
+  overlay.style.display = 'flex';
+  overlay.innerHTML = `
+    <h1 style="font-size:28px;margin-bottom:8px;">🎲 其他游戏</h1>
+    <div style="color:#aaa;font-size:15px;margin:30px 0 40px;line-height:1.8;">
+      <div style="font-size:40px;margin-bottom:12px;">🚧</div>
+      更多游戏即将推出，敬请期待...
+    </div>
+    <button id="otherGamesBackBtn" style="padding:10px 36px;font-size:15px;border:none;border-radius:8px;background:#555;color:#fff;cursor:pointer;">返回首页</button>
+  `;
+  document.getElementById('otherGamesBackBtn').addEventListener('click', function() {
+    showOverlay(false);
+  });
 }
 
 async function showSkinStore() {
@@ -2169,6 +2185,7 @@ function rebuildOverlayHTML() {
         <button id="leaderboardBtn" style="flex:1;padding:8px 0;font-size:14px;border:none;border-radius:8px;background:#fb8500;color:#fff;cursor:pointer;">🏆 排行榜</button>
         <button id="skinStoreBtn" style="flex:1;padding:8px 0;font-size:14px;border:none;border-radius:8px;background:#e91e63;color:#fff;cursor:pointer;">🎨 皮肤</button>
       </div>
+      <button id="otherGamesBtn" style="width:100%;padding:8px 0;font-size:14px;border:none;border-radius:8px;background:rgba(255,255,255,0.1);color:#aaa;cursor:pointer;border:1px dashed rgba(255,255,255,0.2);">🎲 其他游戏</button>
       <button id="homeBtn" style="padding:8px 30px;font-size:14px;border:none;border-radius:8px;background:#555;color:#fff;cursor:pointer;display:none;">返回首页</button>
     </div>
     <div id="highScoreArea" style="margin-top:12px;text-align:center;">
@@ -2213,6 +2230,9 @@ function rebuildOverlayHTML() {
   document.getElementById('skinStoreBtn').addEventListener('click', function() {
     if (!getLoggedInUser()) { showGameAlert('请先登录'); return; }
     showSkinStore();
+  });
+  document.getElementById('otherGamesBtn').addEventListener('click', function() {
+    showOtherGames();
   });
   document.getElementById('homeBtn').addEventListener('click', function() {
     gameRunning = false; falling = false; jumpAnim = null; slipping = false; fallToBase = null; showOverlay(false);
@@ -2369,6 +2389,10 @@ document.getElementById('leaderboardBtn').addEventListener('click', function() {
 document.getElementById('skinStoreBtn').addEventListener('click', function() {
   if (!getLoggedInUser()) { showGameAlert('请先登录'); return; }
   showSkinStore();
+});
+
+document.getElementById('otherGamesBtn').addEventListener('click', function() {
+  showOtherGames();
 });
 
 backBtn.addEventListener('click', function() {
