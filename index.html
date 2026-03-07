@@ -914,9 +914,9 @@ async function showSkinStore() {
             playerUnlockedSkins = data.unlockedSkins;
             showSkinStore();
           } else {
-            alert(data.error || '购买失败');
+            showGameAlert(data.error || '购买失败');
           }
-        } catch(err) { alert('网络错误'); }
+        } catch(err) { showGameAlert('网络错误'); }
       } else if (state === 'equip') {
         try {
           const resp = await fetch(getApiBase() + '/api/skins/equip', {
@@ -929,9 +929,9 @@ async function showSkinStore() {
             playerEquippedSkin = data.equippedSkin;
             showSkinStore();
           } else {
-            alert(data.error || '装备失败');
+            showGameAlert(data.error || '装备失败');
           }
-        } catch(err) { alert('网络错误'); }
+        } catch(err) { showGameAlert('网络错误'); }
       }
     });
     card.appendChild(btnEl);
@@ -2211,7 +2211,7 @@ function rebuildOverlayHTML() {
     showLeaderboard();
   });
   document.getElementById('skinStoreBtn').addEventListener('click', function() {
-    if (!getLoggedInUser()) { alert('请先登录'); return; }
+    if (!getLoggedInUser()) { showGameAlert('请先登录'); return; }
     showSkinStore();
   });
   document.getElementById('homeBtn').addEventListener('click', function() {
@@ -2236,6 +2236,51 @@ function rebuildOverlayHTML() {
     const passEl = document.getElementById('authPass');
     if (passEl) passEl.addEventListener('keydown', function(e) { if (e.key === 'Enter') doAuth('login'); });
   }
+}
+
+// === 游戏内弹框系统 ===
+function showGameModal(title, message, buttons) {
+  return new Promise((resolve) => {
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:100;display:flex;align-items:center;justify-content:center;';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:linear-gradient(135deg,#1a1a2e,#16213e);border:2px solid rgba(233,69,96,0.5);border-radius:16px;padding:24px 32px;text-align:center;min-width:260px;max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
+    if (title) {
+      const h = document.createElement('div');
+      h.style.cssText = 'color:#fff;font-size:18px;font-weight:bold;margin-bottom:8px;';
+      h.textContent = title;
+      box.appendChild(h);
+    }
+    const p = document.createElement('div');
+    p.style.cssText = 'color:#ccc;font-size:14px;margin-bottom:18px;line-height:1.5;';
+    p.textContent = message;
+    box.appendChild(p);
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:10px;justify-content:center;';
+    (buttons || [{ text: '确定', value: true }]).forEach(b => {
+      const btn = document.createElement('button');
+      btn.style.cssText = 'padding:8px 24px;font-size:15px;border:none;border-radius:8px;color:#fff;cursor:pointer;transition:transform 0.1s;' + (b.style === 'cancel' ? 'background:#555;' : 'background:#e94560;');
+      btn.textContent = b.text;
+      btn.onmouseenter = () => btn.style.transform = 'scale(1.05)';
+      btn.onmouseleave = () => btn.style.transform = 'scale(1)';
+      btn.onclick = () => { modal.remove(); resolve(b.value); };
+      btnRow.appendChild(btn);
+    });
+    box.appendChild(btnRow);
+    modal.appendChild(box);
+    document.body.appendChild(modal);
+  });
+}
+
+function showGameAlert(message, title) {
+  return showGameModal(title || '提示', message);
+}
+
+function showGameConfirm(message, title) {
+  return showGameModal(title || '确认', message, [
+    { text: '取消', value: false, style: 'cancel' },
+    { text: '确定', value: true }
+  ]);
 }
 
 function showOverlay(isGameOver) {
@@ -2322,7 +2367,7 @@ document.getElementById('leaderboardBtn').addEventListener('click', function() {
 });
 
 document.getElementById('skinStoreBtn').addEventListener('click', function() {
-  if (!getLoggedInUser()) { alert('请先登录'); return; }
+  if (!getLoggedInUser()) { showGameAlert('请先登录'); return; }
   showSkinStore();
 });
 
@@ -3216,7 +3261,7 @@ let arenaServerUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + loc
 
 function showArenaLobby() {
   const name = getPlayerName();
-  if (!name) { alert('请先登录或注册'); return; }
+  if (!name) { showGameAlert('请先登录或注册'); return; }
   overlay.innerHTML = `
     <h1 style="font-size:32px">🏟️ 竞技模式</h1>
     <p style="color:#aaa;margin-bottom:15px">回合制多人赛跑对战</p>
@@ -3651,6 +3696,16 @@ function arenaOnEventEffect(event, affectedPlayers) {
     if (eff.newIndex !== undefined && eff.playerId === arenaLocalPlayerId && player) {
       const plat = arenaRacetrack[eff.newIndex - 1];
       if (plat) {
+        // 确保目标平台可用
+        if (plat.collapsed) {
+          plat.collapsed = false;
+          plat.timerActive = false;
+          plat.timerStart = 0;
+        }
+        if (plat.shrinkRate > 0) {
+          plat.w = plat.origW;
+          plat.shrinking = false;
+        }
         const tc = plat.getTopCenter();
         player.x = tc.x;
         player.y = tc.y;
@@ -3704,11 +3759,11 @@ function arenaItemName(type) {
 
 function arenaItemDesc(type) {
   const descs = {
-    auto_land: '使用后接下来2次跳跃必定成功落地',
-    pushback: '选择一个对手，将其退后2格',
+    auto_land: '使用后本回合剩余跳跃必定成功落地',
+    pushback: '选择一个对手，将其退后3格',
     freeze: '选择一个对手，使其跳过下一回合',
     shield: '获得护盾，抵消一次负面事件或陷阱',
-    speed_boost: '使用后本回合额外获得2次跳跃机会'
+    speed_boost: '使用后本回合跳跃次数翻倍（最多12次）'
   };
   return descs[type] || '';
 }
@@ -3769,7 +3824,7 @@ function arenaStartCharge() {
                 name: arenaItemName(itemType),
                 desc: arenaItemDesc(itemType),
                 x: ix, y: itemY - 60,
-                timer: 2500
+                persistent: true
               };
               arenaItemLongPressTimer = 'shown';
             }, 400);
@@ -3806,6 +3861,9 @@ function arenaReleaseCharge() {
           }
         }
       }
+    } else {
+      // 长按结束：关闭提示框
+      arenaItemTooltip = null;
     }
     arenaItemLongPressTimer = null;
     return;
@@ -3886,6 +3944,16 @@ function arenaHandleLanding() {
     if (state) {
       const origPlat = arenaRacetrack[state.platformIndex - 1];
       if (origPlat) {
+        // 确保原平台可用（恢复塌陷/缩小状态）
+        if (origPlat.collapsed) {
+          origPlat.collapsed = false;
+          origPlat.timerActive = false;
+          origPlat.timerStart = 0;
+        }
+        if (origPlat.shrinkRate > 0) {
+          origPlat.w = origPlat.origW;
+          origPlat.shrinking = false;
+        }
         const tc = origPlat.getTopCenter();
         player.x = tc.x;
         player.y = tc.y;
@@ -4097,9 +4165,11 @@ function arenaRenderHUD() {
 
   // 道具长按提示框
   if (arenaItemTooltip) {
-    arenaItemTooltip.timer -= 16;
-    if (arenaItemTooltip.timer <= 0) { arenaItemTooltip = null; }
-    else {
+    if (!arenaItemTooltip.persistent) {
+      arenaItemTooltip.timer -= 16;
+      if (arenaItemTooltip.timer <= 0) { arenaItemTooltip = null; }
+    }
+    if (arenaItemTooltip) {
       const tt = arenaItemTooltip;
       const tw = 180, th = 50;
       const tx = Math.min(tt.x, W - tw - 5);
@@ -4203,17 +4273,12 @@ function arenaRenderGhosts(ox, oy) {
     }
   }
 
-  // Ghost 跳跃动画（完整角色形态，含掉落）
+  // Ghost 跳跃动画（完整角色形态，含掉落）— 仅渲染，进度在 arenaUpdate 中更新
   for (let i = arenaGhosts.length - 1; i >= 0; i--) {
     const g = arenaGhosts[i];
 
     if (g.fallAfterLand && g.progress >= 1) {
       // 掉落动画阶段
-      g.fallProgress += 16 / 500;
-      if (g.fallProgress >= 1) {
-        arenaGhosts.splice(i, 1);
-        continue;
-      }
       const gx = g.targetX - ox;
       const gy = g.targetY + g.fallProgress * 200 - oy;
       const alpha = Math.max(0, 0.5 - g.fallProgress * 0.5);
@@ -4228,16 +4293,7 @@ function arenaRenderGhosts(ox, oy) {
       continue;
     }
 
-    g.progress += 16 / g.duration;
-    if (g.progress >= 1) {
-      if (g.fallAfterLand) {
-        g.progress = 1; // 保持在终点，等掉落动画
-        continue;
-      }
-      arenaGhosts.splice(i, 1);
-      continue;
-    }
-    const t = g.progress;
+    const t = Math.min(g.progress, 1);
     const gx = g.startX + (g.targetX - g.startX) * t - ox;
     const gy = calculateParabola(t, g.startY, g.targetY, g.height) - oy;
     const rotation = t * Math.PI * 2 * (g.targetX > g.startX ? 1 : -1);
@@ -4417,11 +4473,41 @@ function arenaUpdate(dt) {
     if (curPlat && curPlat.moving && curPlat.moveDeltaX) {
       player.x += curPlat.moveDeltaX;
     }
+    // 防止玩家脚下的平台消失：如果当前平台塌陷了，立即恢复它
+    if (curPlat && curPlat.collapsed) {
+      curPlat.collapsed = false;
+      curPlat.timerActive = false;
+      curPlat.timerStart = 0;
+    }
+    // 防止缩小平台缩到太小导致视觉消失
+    if (curPlat && curPlat.shrinking && curPlat.w < curPlat.minW + 5) {
+      curPlat.w = curPlat.minW + 5;
+    }
   }
 
   if (player && player.bounce > 0) {
     player.bounce -= dt * 0.004;
     if (player.bounce < 0) player.bounce = 0;
+  }
+
+  // Ghost 动画进度更新（使用实际 dt）
+  for (let i = arenaGhosts.length - 1; i >= 0; i--) {
+    const g = arenaGhosts[i];
+    if (g.fallAfterLand && g.progress >= 1) {
+      g.fallProgress += dt / 500;
+      if (g.fallProgress >= 1) {
+        arenaGhosts.splice(i, 1);
+      }
+    } else {
+      g.progress += dt / g.duration;
+      if (g.progress >= 1) {
+        if (g.fallAfterLand) {
+          g.progress = 1;
+        } else {
+          arenaGhosts.splice(i, 1);
+        }
+      }
+    }
   }
 
   updateParticles(dt);
@@ -4486,12 +4572,14 @@ canvas.addEventListener('click', (e) => {
   if (arenaExitBtnRect) {
     const b = arenaExitBtnRect;
     if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) {
-      if (confirm('确定退出游戏？')) {
-        if (arenaNet) arenaNet.disconnect();
-        arenaMode = false;
-        gameRunning = false;
-        showOverlay(false);
-      }
+      showGameConfirm('确定退出游戏？').then(ok => {
+        if (ok) {
+          if (arenaNet) arenaNet.disconnect();
+          arenaMode = false;
+          gameRunning = false;
+          showOverlay(false);
+        }
+      });
       return;
     }
   }
