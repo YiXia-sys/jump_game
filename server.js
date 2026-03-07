@@ -565,7 +565,7 @@ function mulberry32Server(seed) {
 // 生成赛道的 mystery 标记数组（与客户端 generateRacetrack 的 PRNG 调用顺序完全一致）
 function generateMysteryFlagsExact(seed) {
   const prng = mulberry32Server(seed);
-  const totalPlatforms = 20;
+  const totalPlatforms = 100;
   const flags = [false]; // 平台0（起点）
   let lastMoving = false;
 
@@ -619,7 +619,7 @@ const ARENA_EVENTS = [
 
 const ITEM_TYPES = ['auto_land', 'pushback', 'freeze', 'shield', 'speed_boost'];
 
-function clampIndex(idx) { return Math.max(1, Math.min(20, idx)); }
+function clampIndex(idx) { return Math.max(1, Math.min(100, idx)); }
 
 function applyEvent(room, event, triggerPlayerId) {
   const effects = [];
@@ -669,7 +669,7 @@ function applyEvent(room, event, triggerPlayerId) {
       if (triggerPlayer) {
         triggerPlayer.platformIndex = clampIndex(triggerPlayer.platformIndex + 3);
         effects.push({ playerId: triggerPlayerId, newIndex: triggerPlayer.platformIndex, effect: 'lottery' });
-        if (triggerPlayer.platformIndex >= 20) {
+        if (triggerPlayer.platformIndex >= 100) {
           return { effects, winner: triggerPlayerId };
         }
       }
@@ -895,7 +895,7 @@ function reportJumpResult(room, playerId, success, targetIndex) {
   });
 
   // 胜利判定
-  if (player.platformIndex >= 20) {
+  if (player.platformIndex >= 100) {
     endGame(room, playerId);
     return;
   }
