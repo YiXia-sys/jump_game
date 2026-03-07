@@ -1071,9 +1071,9 @@ function generateRacetrack(seed) {
     p.color = COLORS[Math.floor(prng() * COLORS.length)];
     p.movePhase = prng() * Math.PI * 2;
 
-    // Mystery_Platform：第2-19个平台，20%概率
+    // Mystery_Platform：10%概率
     const isLast = (i === totalPlatforms - 1);
-    p.isMystery = (!isLast && prng() < 0.2);
+    p.isMystery = (!isLast && prng() < 0.1);
     p.isStart = false;
     p.isFinish = isLast;
 
@@ -3812,10 +3812,10 @@ function arenaStartCharge() {
   if (arenaLastPointerX !== null) {
     const localState = arenaPlayerStates.get(arenaLocalPlayerId);
     if (localState) {
-      const itemY = H - 50;
+      const itemY = H - 56;
       for (let i = 0; i < 2; i++) {
-        const ix = W - 90 + i * 42;
-        if (arenaLastPointerX >= ix && arenaLastPointerX <= ix + 38 && arenaLastPointerY >= itemY && arenaLastPointerY <= itemY + 38) {
+        const ix = W - 92 + i * 44;
+        if (arenaLastPointerX >= ix && arenaLastPointerX <= ix + 40 && arenaLastPointerY >= itemY && arenaLastPointerY <= itemY + 40) {
           if (localState.items[i]) {
             // 启动长按计时器，长按显示说明，短按使用道具
             const itemType = localState.items[i];
@@ -3853,10 +3853,10 @@ function arenaReleaseCharge() {
       clearTimeout(arenaItemLongPressTimer);
       const localState = arenaPlayerStates.get(arenaLocalPlayerId);
       if (localState && arenaLastPointerX !== null) {
-        const itemY = H - 50;
+        const itemY = H - 56;
         for (let i = 0; i < 2; i++) {
-          const ix = W - 90 + i * 42;
-          if (arenaLastPointerX >= ix && arenaLastPointerX <= ix + 38 && arenaLastPointerY >= itemY && arenaLastPointerY <= itemY + 38) {
+          const ix = W - 92 + i * 44;
+          if (arenaLastPointerX >= ix && arenaLastPointerX <= ix + 40 && arenaLastPointerY >= itemY && arenaLastPointerY <= itemY + 40) {
             if (localState.items[i]) { arenaUseItem(localState.items[i]); break; }
           }
         }
@@ -4004,26 +4004,31 @@ function arenaSelectTarget(itemType, targetId) {
 function arenaRenderHUD() {
   if (!arenaMode || !arenaRoomState) return;
 
-  // 赛道进度条
+  // 赛道进度条（100格，每5格一个刻度）
   const barY = 10, barH = 16, barX = 50, barW = W - 100;
   ctx.fillStyle = 'rgba(0,0,0,0.5)';
   ctx.fillRect(barX, barY, barW, barH);
-  const cellW = barW / 20;
-  for (let i = 0; i < 20; i++) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-    ctx.strokeRect(barX + i * cellW, barY, cellW, barH);
-    // Mystery 标记
-    if (arenaRacetrack[i] && arenaRacetrack[i].isMystery) {
-      ctx.fillStyle = 'rgba(255,255,255,0.3)';
-      ctx.font = '8px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('?', barX + i * cellW + cellW / 2, barY + barH - 3);
-    }
+  // 每5格画一个刻度线
+  for (let i = 0; i <= 20; i++) {
+    const lx = barX + (i / 20) * barW;
+    ctx.strokeStyle = i % 4 === 0 ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.15)';
+    ctx.beginPath();
+    ctx.moveTo(lx, barY);
+    ctx.lineTo(lx, barY + barH);
+    ctx.stroke();
   }
+  // 起点/终点标记
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.font = '8px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('1', barX + 2, barY + barH - 3);
+  ctx.textAlign = 'right';
+  ctx.fillText('100', barX + barW - 2, barY + barH - 3);
   // 玩家位置标记
   for (const [pid, state] of arenaPlayerStates) {
     const color = arenaGetPlayerColor(pid);
-    const px = barX + (state.platformIndex - 1) * cellW + cellW / 2;
+    const ratio = (state.platformIndex - 1) / 99;
+    const px = barX + ratio * barW;
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(px, barY + barH / 2, 4, 0, Math.PI * 2);
@@ -4130,20 +4135,44 @@ function arenaRenderHUD() {
   // 道具栏
   const localState = arenaPlayerStates.get(arenaLocalPlayerId);
   if (localState) {
-    const itemY = H - 50;
+    const itemY = H - 56;
+    // 道具栏背景
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.beginPath();
+    ctx.roundRect(W - 96, itemY - 4, 92, 52, 8);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('道具', W - 50, itemY - 8 + 4);
     for (let i = 0; i < 2; i++) {
-      const ix = W - 90 + i * 42;
+      const ix = W - 92 + i * 44;
       if (localState.items[i]) {
-        ctx.fillStyle = 'rgba(255,215,0,0.3)';
-        ctx.fillRect(ix, itemY, 38, 38);
-        ctx.fillStyle = '#fff';
-        ctx.font = '10px sans-serif';
+        ctx.fillStyle = 'rgba(255,215,0,0.35)';
+        ctx.beginPath();
+        ctx.roundRect(ix, itemY, 40, 40, 6);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,215,0,0.6)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(ix, itemY, 40, 40, 6);
+        ctx.stroke();
+        // 道具图标
+        const icons = { auto_land: '🎯', pushback: '👊', freeze: '🧊', shield: '🛡️', speed_boost: '⚡' };
+        ctx.font = '16px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(arenaItemName(localState.items[i]), ix + 19, itemY + 24);
+        ctx.fillText(icons[localState.items[i]] || '📦', ix + 20, itemY + 20);
+        // 道具名
+        ctx.fillStyle = '#fff';
+        ctx.font = '9px sans-serif';
+        ctx.fillText(arenaItemName(localState.items[i]), ix + 20, itemY + 34);
       } else {
-        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-        ctx.setLineDash([4, 4]);
-        ctx.strokeRect(ix, itemY, 38, 38);
+        ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+        ctx.setLineDash([3, 3]);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(ix, itemY, 40, 40, 6);
+        ctx.stroke();
         ctx.setLineDash([]);
       }
     }

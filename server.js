@@ -512,16 +512,17 @@ function botPlayTurn(room, botId) {
       reportJumpResult(room, botId, success, success ? targetIndex : bot.platformIndex);
 
       // 如果成功落在 Mystery_Platform，触发事件
+      // 必须在 reportJumpResult 之后、下一跳之前检查
+      // 注意：reportJumpResult 可能已经调用了 advanceTurn（quota=0时）
       if (success && room.phase === 'playing') {
-        // 需要检查赛道上该平台是否是 mystery（服务端不存储赛道，用概率模拟）
-        // 实际上赛道是客户端生成的，服务端不知道哪些是 mystery
-        // 所以让客户端来触发 trigger_mystery，但 bot 没有客户端
-        // 解决方案：服务端也用 seed 生成赛道信息
-        checkBotMystery(room, botId);
+        const cid2 = room.turnOrder[room.currentTurnIndex];
+        if (cid2 === botId) {
+          checkBotMystery(room, botId);
+        }
       }
 
-      // 继续下一跳
-      if (room.currentTurnQuota > 0 && room.turnOrder[room.currentTurnIndex] === botId) {
+      // 继续下一跳（再次检查是否仍是本bot的回合）
+      if (room.phase === 'playing' && room.currentTurnQuota > 0 && room.turnOrder[room.currentTurnIndex] === botId) {
         setTimeout(doNextJump, 800);
       }
     }, 600);
@@ -537,7 +538,7 @@ function checkBotMystery(room, botId) {
   if (!bot) return;
   const mysteryFlags = generateMysteryFlagsExact(room.seed);
   const platIdx = bot.platformIndex; // 1-based
-  if (platIdx >= 2 && platIdx <= 19 && mysteryFlags[platIdx - 1]) {
+  if (platIdx >= 2 && platIdx <= 99 && mysteryFlags[platIdx - 1]) {
     const result = triggerMysteryPlatform(room, botId);
     if (result) {
       broadcastAll(room, { type: 'mystery_result', playerId: botId, ...result });
@@ -546,6 +547,10 @@ function checkBotMystery(room, botId) {
       }
       if (result.winner) {
         endGame(room, result.winner);
+      } else if (room.currentTurnQuota <= 0) {
+        // 事件清空了步数（如监狱），结束回合
+        bot.autoLandRemaining = 0;
+        advanceTurn(room);
       }
     }
   }
@@ -579,7 +584,7 @@ function generateMysteryFlagsExact(seed) {
 
     const isLast = (i === totalPlatforms - 1);
     const mysteryRoll = prng(); // isMystery
-    flags.push(!isLast && mysteryRoll < 0.2);
+    flags.push(!isLast && mysteryRoll < 0.1);
 
     const specialRoll = prng(); // specialRoll
     // 根据 specialRoll 的值，可能有额外的 prng 调用
