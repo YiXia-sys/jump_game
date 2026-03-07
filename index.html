@@ -190,6 +190,7 @@
       <div id="highScoreDisplay" style="color:#ffd700;font-size:15px;"></div>
       <button id="clearScoreBtn" style="padding:4px 16px;font-size:12px;border:none;border-radius:6px;background:#555;color:#aaa;cursor:pointer;margin-top:6px;display:none;">清空记录</button>
     </div>
+    <div id="bgSelectArea" style="margin-top:8px;text-align:center;"></div>
     <div id="authArea" style="margin-top:14px;text-align:center;"></div>
   </div>
 </div>
@@ -244,6 +245,49 @@ let slipping = false; // 边缘滑落状态
 let slipAnim = null;
 let fallToBase = null; // 掉落到柱底动画
 let testMode = false;
+
+// === 背景主题系统 ===
+const BG_THEMES = [
+  { id: 'night', name: '夜空', bg: '#1a1a2e', ground: '#16213e', accent: '#0f3460', particle: '#334' },
+  { id: 'desert', name: '黄土地', bg: '#c2956b', ground: '#a67c52', accent: '#8b6914', particle: '#d4a' },
+  { id: 'ocean', name: '海面', bg: '#1565c0', ground: '#0d47a1', accent: '#0277bd', particle: '#048' },
+  { id: 'asphalt', name: '沥青路', bg: '#37474f', ground: '#263238', accent: '#455a64', particle: '#556' },
+  { id: 'sand', name: '沙地', bg: '#e8c97a', ground: '#d4a843', accent: '#c49b3f', particle: '#ba8' },
+  { id: 'paved', name: '铺装地面', bg: '#78909c', ground: '#607d8b', accent: '#546e7a', particle: '#8a9' },
+  { id: 'wood', name: '木地板', bg: '#8d6e63', ground: '#6d4c41', accent: '#5d4037', particle: '#a87' },
+  { id: 'grass', name: '草地', bg: '#388e3c', ground: '#2e7d32', accent: '#1b5e20', particle: '#4a6' },
+  { id: 'snow', name: '雪地', bg: '#b0bec5', ground: '#90a4ae', accent: '#78909c', particle: '#cde' },
+  { id: 'lava', name: '熔岩', bg: '#bf360c', ground: '#8b1a00', accent: '#d84315', particle: '#f64' },
+  { id: 'space', name: '太空', bg: '#0d0d2b', ground: '#1a0a3e', accent: '#2d1b69', particle: '#429' },
+  { id: 'cherry', name: '樱花', bg: '#f8bbd0', ground: '#f48fb1', accent: '#ec407a', particle: '#fce' },
+];
+const BG_PREF_KEY = 'jumpGame_bgTheme';
+let currentBgTheme = null;
+
+function getSelectedBgId() { return localStorage.getItem(BG_PREF_KEY) || 'random'; }
+function setSelectedBgId(id) { localStorage.setItem(BG_PREF_KEY, id); }
+
+function pickBgTheme() {
+  const pref = getSelectedBgId();
+  if (pref === 'random') {
+    currentBgTheme = BG_THEMES[Math.floor(Math.random() * BG_THEMES.length)];
+  } else {
+    currentBgTheme = BG_THEMES.find(t => t.id === pref) || BG_THEMES[0];
+  }
+}
+
+function drawGameBg() {
+  if (!currentBgTheme) pickBgTheme();
+  const t = currentBgTheme;
+  ctx.fillStyle = t.bg;
+  ctx.fillRect(0, 0, W, H);
+  // 底部渐变地面效果
+  const grd = ctx.createLinearGradient(0, H * 0.7, 0, H);
+  grd.addColorStop(0, 'transparent');
+  grd.addColorStop(1, t.ground + '40');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, H * 0.7, W, H * 0.3);
+}
 
 // === 最高分管理 ===
 const HIGH_SCORE_KEY = 'jumpGame_highScore';
@@ -1285,127 +1329,127 @@ const SKIN_REGISTRY = [
     eyeSize: 2.5, highlightColor: '#fff', outlineColor: null, effect: null
   },
   {
-    skinId: 'flame', name: '烈焰', price: 50, type: 'basic',
+    skinId: 'flame', name: '烈焰', price: 500, type: 'basic',
     bodyColor: '#e74c3c', innerColor: 'rgba(255,165,0,0.6)', eyeColor: '#fff3e0',
     eyeSize: 2.5, highlightColor: '#ffeb3b', outlineColor: '#b71c1c', effect: 'flame'
   },
   {
-    skinId: 'ocean', name: '海洋', price: 50, type: 'basic',
+    skinId: 'ocean', name: '海洋', price: 500, type: 'basic',
     bodyColor: '#2196f3', innerColor: 'rgba(0,255,255,0.5)', eyeColor: '#e0f7fa',
     eyeSize: 2.5, highlightColor: '#b3e5fc', outlineColor: '#0d47a1', effect: 'trail'
   },
   {
-    skinId: 'forest', name: '森林', price: 30, type: 'basic',
+    skinId: 'forest', name: '森林', price: 300, type: 'basic',
     bodyColor: '#4caf50', innerColor: 'rgba(139,195,74,0.5)', eyeColor: '#1b5e20',
     eyeSize: 2.5, highlightColor: '#c8e6c9', outlineColor: '#2e7d32', effect: 'sparkle'
   },
   {
-    skinId: 'galaxy', name: '星空', price: 80, type: 'basic',
+    skinId: 'galaxy', name: '星空', price: 800, type: 'basic',
     bodyColor: '#4a148c', innerColor: 'rgba(156,39,176,0.5)', eyeColor: '#e1bee7',
     eyeSize: 3, highlightColor: '#ce93d8', outlineColor: '#311b92', effect: 'glow'
   },
   {
-    skinId: 'candy', name: '糖果', price: 30, type: 'basic',
+    skinId: 'candy', name: '糖果', price: 300, type: 'basic',
     bodyColor: '#e91e90', innerColor: 'rgba(255,182,193,0.6)', eyeColor: '#4a148c',
     eyeSize: 3, highlightColor: '#f8bbd0', outlineColor: '#ad1457', effect: 'sparkle'
   },
   {
-    skinId: 'gold', name: '黄金', price: 100, type: 'basic',
+    skinId: 'gold', name: '黄金', price: 1000, type: 'basic',
     bodyColor: '#ffd700', innerColor: 'rgba(255,215,0,0.5)', eyeColor: '#3e2723',
     eyeSize: 2.5, highlightColor: '#fff9c4', outlineColor: '#f57f17', effect: 'glow'
   },
   {
-    skinId: 'frost', name: '冰霜', price: 60, type: 'basic',
+    skinId: 'frost', name: '冰霜', price: 600, type: 'basic',
     bodyColor: '#b3e5fc', innerColor: 'rgba(224,247,250,0.6)', eyeColor: '#01579b',
     eyeSize: 2.5, highlightColor: '#e0f7fa', outlineColor: '#0288d1', effect: 'trail'
   },
   // === 进阶皮肤（人形角色） ===
   {
-    skinId: 'cowboy', name: '牛仔', price: 150, type: 'advanced',
+    skinId: 'cowboy', name: '牛仔', price: 1500, type: 'advanced',
     headColor: '#f5cba7', hatColor: '#8b4513', hatBrim: true,
     bodyColor: '#a0522d', beltColor: '#ffd700', beltBuckle: true,
     legColor: '#4a2c0a', bootColor: '#3e2723',
     eyeColor: '#1a1a2e', accessory: 'hat', effect: null
   },
   {
-    skinId: 'doctor', name: '医生', price: 150, type: 'advanced',
+    skinId: 'doctor', name: '医生', price: 1500, type: 'advanced',
     headColor: '#f5cba7', hatColor: '#fff', hatBrim: false,
     bodyColor: '#ffffff', beltColor: '#2196f3', beltBuckle: false,
     legColor: '#e0e0e0', bootColor: '#455a64',
     eyeColor: '#1a1a2e', accessory: 'cross', effect: null
   },
   {
-    skinId: 'girl', name: '少女', price: 180, type: 'advanced',
+    skinId: 'girl', name: '少女', price: 1800, type: 'advanced',
     headColor: '#fce4ec', hatColor: '#e91e63', hatBrim: false,
     bodyColor: '#f48fb1', beltColor: '#e91e63', beltBuckle: false,
     legColor: '#fce4ec', bootColor: '#e91e63',
     eyeColor: '#880e4f', accessory: 'bow', effect: 'sparkle'
   },
   {
-    skinId: 'ninja', name: '忍者', price: 200, type: 'advanced',
+    skinId: 'ninja', name: '忍者', price: 2000, type: 'advanced',
     headColor: '#37474f', hatColor: '#263238', hatBrim: false,
     bodyColor: '#263238', beltColor: '#f44336', beltBuckle: false,
     legColor: '#37474f', bootColor: '#212121',
     eyeColor: '#fff', accessory: 'mask', effect: null
   },
   {
-    skinId: 'chef', name: '厨师', price: 160, type: 'advanced',
+    skinId: 'chef', name: '厨师', price: 1600, type: 'advanced',
     headColor: '#f5cba7', hatColor: '#fff', hatBrim: false,
     bodyColor: '#ffffff', beltColor: '#000', beltBuckle: false,
     legColor: '#424242', bootColor: '#212121',
     eyeColor: '#1a1a2e', accessory: 'chefhat', effect: null
   },
   {
-    skinId: 'pirate', name: '海盗', price: 220, type: 'advanced',
+    skinId: 'pirate', name: '海盗', price: 2200, type: 'advanced',
     headColor: '#f5cba7', hatColor: '#1a1a2e', hatBrim: true,
     bodyColor: '#d32f2f', beltColor: '#ffd700', beltBuckle: true,
     legColor: '#5d4037', bootColor: '#3e2723',
     eyeColor: '#1a1a2e', accessory: 'eyepatch', effect: 'flame'
   },
   {
-    skinId: 'astronaut', name: '宇航员', price: 250, type: 'advanced',
+    skinId: 'astronaut', name: '宇航员', price: 2500, type: 'advanced',
     headColor: '#b0bec5', hatColor: '#cfd8dc', hatBrim: false,
     bodyColor: '#eceff1', beltColor: '#ff9800', beltBuckle: false,
     legColor: '#b0bec5', bootColor: '#78909c',
     eyeColor: '#00bcd4', accessory: 'helmet', effect: 'glow'
   },
   {
-    skinId: 'knight', name: '骑士', price: 280, type: 'advanced',
+    skinId: 'knight', name: '骑士', price: 2800, type: 'advanced',
     headColor: '#9e9e9e', hatColor: '#757575', hatBrim: false,
     bodyColor: '#9e9e9e', beltColor: '#ffd700', beltBuckle: true,
     legColor: '#757575', bootColor: '#616161',
     eyeColor: '#1a1a2e', accessory: 'visor', effect: 'glow'
   },
   {
-    skinId: 'witch', name: '女巫', price: 200, type: 'advanced',
+    skinId: 'witch', name: '女巫', price: 2000, type: 'advanced',
     headColor: '#e8d5b7', hatColor: '#4a148c', hatBrim: true,
     bodyColor: '#6a1b9a', beltColor: '#ffd700', beltBuckle: false,
     legColor: '#4a148c', bootColor: '#311b92',
     eyeColor: '#76ff03', accessory: 'witchhat', effect: 'sparkle'
   },
   {
-    skinId: 'soldier', name: '军人', price: 180, type: 'advanced',
+    skinId: 'soldier', name: '军人', price: 1800, type: 'advanced',
     headColor: '#f5cba7', hatColor: '#4caf50', hatBrim: false,
     bodyColor: '#388e3c', beltColor: '#5d4037', beltBuckle: true,
     legColor: '#2e7d32', bootColor: '#1b5e20',
     eyeColor: '#1a1a2e', accessory: 'beret', effect: null
   },
   {
-    skinId: 'princess', name: '公主', price: 300, type: 'advanced',
+    skinId: 'princess', name: '公主', price: 3000, type: 'advanced',
     headColor: '#fce4ec', hatColor: '#ffd700', hatBrim: false,
     bodyColor: '#ce93d8', beltColor: '#ffd700', beltBuckle: false,
     legColor: '#e1bee7', bootColor: '#ab47bc',
     eyeColor: '#4a148c', accessory: 'crown', effect: 'sparkle'
   },
   {
-    skinId: 'robot', name: '机器人', price: 350, type: 'advanced',
+    skinId: 'robot', name: '机器人', price: 3500, type: 'advanced',
     headColor: '#78909c', hatColor: '#546e7a', hatBrim: false,
     bodyColor: '#607d8b', beltColor: '#00e676', beltBuckle: false,
     legColor: '#546e7a', bootColor: '#455a64',
     eyeColor: '#00e5ff', accessory: 'antenna', effect: 'glow'
   },
   {
-    skinId: 'vampire', name: '吸血鬼', price: 320, type: 'advanced',
+    skinId: 'vampire', name: '吸血鬼', price: 3200, type: 'advanced',
     headColor: '#e0e0e0', hatColor: '#1a1a2e', hatBrim: false,
     bodyColor: '#1a1a2e', beltColor: '#f44336', beltBuckle: false,
     legColor: '#212121', bootColor: '#000',
@@ -1807,6 +1851,7 @@ function generateNextPlatform(basePlatform) {
 
 function initGame(isTestMode) {
   testMode = isTestMode || false;
+  pickBgTheme();
   sessionCoins = 0;
   particles = [];
   charging = false;
@@ -1838,7 +1883,7 @@ function initGame(isTestMode) {
   fallToBase = null;
   jumpCount = 0;
   sameDirCount = 0;
-  lastSafePlatform = null;
+  lastSafePlatform = platforms[0];
   generateNextPlatform();
   updateStatusBar();
   gameButtonsEl.style.display = 'flex';
@@ -1867,6 +1912,13 @@ function rebuildOverlayHTML() {
     <div id="highScoreArea" style="margin-top:12px;text-align:center;">
       <div id="highScoreDisplay" style="color:#ffd700;font-size:15px;"></div>
       <button id="clearScoreBtn" style="padding:4px 16px;font-size:12px;border:none;border-radius:6px;background:#555;color:#aaa;cursor:pointer;margin-top:6px;display:none;">清空记录</button>
+    </div>
+    <div style="margin-top:8px;text-align:center;">
+      <label style="color:#aaa;font-size:12px;">🎨 背景：</label>
+      <select id="bgSelect" style="padding:3px 8px;font-size:12px;border:none;border-radius:4px;background:rgba(255,255,255,0.15);color:#fff;cursor:pointer;outline:none;">
+        <option value="random" style="background:#333;">随机</option>
+        ${BG_THEMES.map(t => '<option value="' + t.id + '" style="background:#333;">' + t.name + '</option>').join('')}
+      </select>
     </div>
     <div id="authArea" style="margin-top:10px;text-align:center;">
       ${loggedIn ? `
@@ -1904,6 +1956,12 @@ function rebuildOverlayHTML() {
     gameRunning = false; falling = false; jumpAnim = null; slipping = false; fallToBase = null; showOverlay(false);
   });
   document.getElementById('clearScoreBtn').addEventListener('click', function() { clearHighScore(); });
+  // 背景选择
+  const bgSel = document.getElementById('bgSelect');
+  if (bgSel) {
+    bgSel.value = getSelectedBgId();
+    bgSel.addEventListener('change', function() { setSelectedBgId(bgSel.value); });
+  }
   // 登录/注册/退出
   if (loggedIn) {
     const logoutEl = document.getElementById('logoutBtn');
@@ -2212,6 +2270,15 @@ function stopHomeBg() {
 // 页面加载时显示最高分和启动首页背景
 updateHighScoreDisplay();
 verifyAuth();
+// 初始化背景选择器
+(function initBgSelect() {
+  const area = document.getElementById('bgSelectArea');
+  if (area) {
+    area.innerHTML = '<label style="color:#aaa;font-size:12px;">🎨 背景：</label><select id="bgSelect" style="padding:3px 8px;font-size:12px;border:none;border-radius:4px;background:rgba(255,255,255,0.15);color:#fff;cursor:pointer;outline:none;"><option value="random" style="background:#333;">随机</option>' + BG_THEMES.map(t => '<option value="' + t.id + '" style="background:#333;">' + t.name + '</option>').join('') + '</select>';
+    const sel = document.getElementById('bgSelect');
+    if (sel) { sel.value = getSelectedBgId(); sel.addEventListener('change', function() { setSelectedBgId(sel.value); }); }
+  }
+})();
 startHomeBg();
 
 // === 蓄力系统 ===
@@ -2302,6 +2369,9 @@ function startJump(power) {
   jumpAnim = {
     startX: player.x, startY: player.y,
     targetX: player.x + nx * dist, targetY: player.y + ny * dist,
+    origTargetX: player.x + nx * dist, origTargetY: player.y + ny * dist,
+    origAimX: aimX, origAimY: aimY,
+    trackingPlatform: nextPlat.moving,
     progress: 0, duration: jumpDur, height: jumpH,
     dirSign: dx >= 0 ? 1 : -1,
     power: power
@@ -2600,6 +2670,14 @@ function update(dt) {
     } else {
       player.rotation = 0;
     }
+    // 实时追踪移动平台位置，避免空气墙
+    const targetPlat = platforms[platforms.length - 1];
+    if (targetPlat && targetPlat.moving && jumpAnim.trackingPlatform) {
+      const tc = targetPlat.getTopCenter();
+      const dx = tc.x - jumpAnim.origAimX;
+      jumpAnim.targetX = jumpAnim.origTargetX + dx;
+      jumpAnim.targetY = jumpAnim.origTargetY + (tc.y - jumpAnim.origAimY);
+    }
     if (jumpAnim.progress >= 1) {
       jumpAnim.progress = 1;
       player.x = jumpAnim.targetX;
@@ -2741,8 +2819,7 @@ function gameLoop(timestamp) {
 }
 
 function render() {
-  ctx.fillStyle = '#1a1a2e';
-  ctx.fillRect(0, 0, W, H);
+  drawGameBg();
   const ox = cameraX + shakeX, oy = cameraY + shakeY;
 
   // 深度排序：Y 小的先画（远处先画）
@@ -3107,6 +3184,7 @@ function arenaGetPlayerSkinId(playerId) {
 // === 竞技模式：游戏控制器 ===
 
 function arenaStartGame(seed, turnOrder) {
+  pickBgTheme();
   arenaRacetrack = generateRacetrack(seed);
   arenaRoomState.turnOrder = turnOrder;
   arenaRoundNumber = 1;
@@ -3987,8 +4065,7 @@ function arenaUpdate(dt) {
 }
 
 function arenaRender() {
-  ctx.fillStyle = '#1a1a2e';
-  ctx.fillRect(0, 0, W, H);
+  drawGameBg();
   const ox = cameraX + shakeX, oy = cameraY + shakeY;
 
   // 只渲染到最靠前玩家 +3 个平台（逐步出现）
