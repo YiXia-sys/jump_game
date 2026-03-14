@@ -53,7 +53,10 @@ canvas { display: block; border-radius: 4px; background: #d4a843; }
 <div class="top-bar">
   <button onclick="location.href='/'">← 返回</button>
   <div class="status" id="status">五子棋 - 联机对战</div>
-  <button id="restartBtn" style="display:none;background:#e94560;" onclick="requestRestart()">再来一局</button>
+  <div style="display:flex;gap:6px;">
+    <button id="undoBtn" style="display:none;background:#fb8500;" onclick="requestUndo()">悔棋</button>
+    <button id="restartBtn" style="display:none;background:#e94560;" onclick="requestRestart()">再来一局</button>
+  </div>
 </div>
 <div class="container">
   <div class="players-bar" id="playersBar" style="display:none;"></div>
@@ -66,6 +69,12 @@ canvas { display: block; border-radius: 4px; background: #d4a843; }
   <div class="panel-box">
     <h2>⚫ 五子棋联机 ⚪</h2>
     <input id="nameInput" placeholder="输入昵称" maxlength="8" />
+    <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin:8px 0;font-size:14px;color:#ccc;">
+      <label style="cursor:pointer;display:flex;align-items:center;gap:4px;">
+        <input type="checkbox" id="forbiddenCheck" style="width:16px;height:16px;cursor:pointer;" />
+        开启禁手（黑棋禁三三/四四/长连）
+      </label>
+    </div>
     <div style="display:flex;gap:10px;margin-top:6px;">
       <button onclick="createRoom()" style="flex:1;padding:12px;font-size:16px;border:none;border-radius:10px;background:#e94560;color:#fff;cursor:pointer;">创建房间</button>
       <button onclick="showJoin()" style="flex:1;padding:12px;font-size:16px;border:none;border-radius:10px;background:#533483;color:#fff;cursor:pointer;">加入房间</button>
@@ -83,6 +92,7 @@ canvas { display: block; border-radius: 4px; background: #d4a843; }
     <h2>等待对手加入</h2>
     <div style="font-size:36px;letter-spacing:8px;color:#ffd700;margin:16px 0;" id="roomCodeDisplay"></div>
     <div style="color:#aaa;font-size:14px;">将房间号分享给朋友</div>
+    <div id="waitForbiddenTag" style="margin-top:8px;font-size:13px;color:#fb8500;display:none;">⚠ 禁手规则已开启</div>
     <div style="margin-top:16px;">
       <button onclick="copyCode()" style="padding:8px 24px;font-size:14px;border:none;border-radius:8px;background:#533483;color:#fff;cursor:pointer;">复制房间号</button>
     </div>
@@ -98,6 +108,7 @@ const ctx = canvas.getContext('2d');
 let ws = null, myId = null, myColor = 0, roomCode = '';
 let gameBoard = null, currentTurn = 1, phase = 'lobby';
 let players = [], lastMove = null, hoverPos = null;
+let forbiddenRule = false, pendingUndoConfirm = false;
 
 function calcSize() {
   const maxW = Math.min(window.innerWidth - 20, 560);
@@ -136,6 +147,11 @@ function handleMsg(msg) {
       document.getElementById('roomCodeDisplay').textContent = roomCode;
       document.getElementById('lobbyPanel').style.display = 'none';
       document.getElementById('waitPanel').style.display = 'flex';
+      // send forbidden rule setting
+      if (forbiddenRule) {
+        send({ type: 'gomoku_set_forbidden', enabled: true });
+        document.getElementById('waitForbiddenTag').style.display = 'block';
+      }
       break;
     case 'gomoku_room_joined':
     case 'gomoku_player_joined':
@@ -164,6 +180,9 @@ function handleMsg(msg) {
     case 'gomoku_game_reset':
       applyRoomState(msg.room);
       document.getElementById('restartBtn').style.display = 'none';
+      const undoPanel = document.getElementById('undoConfirmPanel');
+      if (undoPanel) undoPanel.remove();
+      pendingUndoConfirm = false;
       lastMove = null;
       draw();
       updateStatus();
@@ -182,6 +201,26 @@ function handleMsg(msg) {
       break;
     case 'gomoku_error':
       document.getElementById('lobbyMsg').textContent = msg.message;
+      setStatus(msg.message);
+      break;
+    case 'gomoku_undo_request':
+      pendingUndoConfirm = true;
+      setStatus('对方请求悔棋');
+      showUndoConfirm();
+      break;
+    case 'gomoku_undo_done':
+      applyRoomState(msg.room);
+      lastMove = (msg.room.moves && msg.room.moves.length > 0) ? msg.room.moves[msg.room.moves.length - 1] : null;
+      pendingUndoConfirm = false;
+      draw();
+      updateStatus();
+      break;
+    case 'gomoku_undo_rejected':
+      setStatus('对方拒绝了悔棋');
+      setTimeout(updateStatus, 2000);
+      break;
+    case 'gomoku_forbidden_changed':
+      forbiddenRule = msg.enabled;
       break;
   }
 }
@@ -192,6 +231,7 @@ function applyRoomState(room) {
   currentTurn = room.currentTurn;
   phase = room.phase;
   players = room.players;
+  forbiddenRule = !!room.forbiddenRule;
   myColor = 0;
   for (const p of players) {
     if (p.id === myId) myColor = p.color;
@@ -207,6 +247,7 @@ function startPlaying() {
   document.getElementById('waitPanel').style.display = 'none';
   document.getElementById('boardWrap').style.display = 'block';
   document.getElementById('playersBar').style.display = 'flex';
+  document.getElementById('undoBtn').style.display = 'inline-block';
   updatePlayersBar();
   draw();
   updateStatus();
@@ -235,7 +276,8 @@ function updateStatus() {
   if (phase !== 'playing') return;
   const isMyTurn = myColor === currentTurn;
   const colorName = currentTurn === 1 ? '⚫黑棋' : '⚪白棋';
-  setStatus(isMyTurn ? `轮到你了 (${colorName})` : `等待对手 (${colorName})`);
+  const fTag = forbiddenRule ? ' [禁手]' : '';
+  setStatus(isMyTurn ? `轮到你了 (${colorName})${fTag}` : `等待对手 (${colorName})${fTag}`);
 }
 
 function draw() {
@@ -346,6 +388,7 @@ canvas.addEventListener('touchend', (e) => {
 
 function createRoom() {
   const name = document.getElementById('nameInput').value.trim() || '玩家';
+  forbiddenRule = document.getElementById('forbiddenCheck').checked;
   send({ type: 'gomoku_create', playerName: name });
 }
 function showJoin() {
@@ -366,6 +409,30 @@ function requestRestart() {
   send({ type: 'gomoku_restart' });
   document.getElementById('restartBtn').style.display = 'none';
   setStatus('等待对方同意...');
+}
+function requestUndo() {
+  if (phase !== 'playing') return;
+  send({ type: 'gomoku_undo_request' });
+  setStatus('等待对方同意悔棋...');
+}
+function showUndoConfirm() {
+  const div = document.createElement('div');
+  div.id = 'undoConfirmPanel';
+  div.className = 'overlay-panel';
+  div.innerHTML = `<div class="panel-box">
+    <h2>对方请求悔棋</h2>
+    <div style="display:flex;gap:12px;margin-top:16px;justify-content:center;">
+      <button onclick="respondUndo(true)" style="padding:10px 28px;font-size:16px;border:none;border-radius:10px;background:#06d6a0;color:#fff;cursor:pointer;">同意</button>
+      <button onclick="respondUndo(false)" style="padding:10px 28px;font-size:16px;border:none;border-radius:10px;background:#e94560;color:#fff;cursor:pointer;">拒绝</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+}
+function respondUndo(accept) {
+  send({ type: 'gomoku_undo_respond', accept });
+  const panel = document.getElementById('undoConfirmPanel');
+  if (panel) panel.remove();
+  pendingUndoConfirm = false;
 }
 
 // heartbeat

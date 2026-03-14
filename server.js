@@ -1290,6 +1290,46 @@ function handleMessage(ws, msg) {
       }
       break;
     }
+    case 'gomoku_undo_request': {
+      const code = gomokuPlayerRooms.get(playerId);
+      const room = code ? gomokuRooms.get(code) : null;
+      if (!room || room.phase !== 'playing' || room.moves.length === 0) break;
+      room.undoRequester = playerId;
+      // notify opponent
+      for (const [id, p] of room.players) {
+        if (id !== playerId && p.ws && p.ws.readyState === 1) {
+          sendTo(p.ws, { type: 'gomoku_undo_request', playerId });
+        }
+      }
+      break;
+    }
+    case 'gomoku_undo_respond': {
+      const code = gomokuPlayerRooms.get(playerId);
+      const room = code ? gomokuRooms.get(code) : null;
+      if (!room || !room.undoRequester) break;
+      if (msg.accept) {
+        gomokuUndo(room);
+        gomokuBroadcast(room, { type: 'gomoku_undo_done', room: gomokuRoomState(room) });
+      } else {
+        const requester = room.players.get(room.undoRequester);
+        if (requester && requester.ws && requester.ws.readyState === 1) {
+          sendTo(requester.ws, { type: 'gomoku_undo_rejected' });
+        }
+      }
+      room.undoRequester = null;
+      break;
+    }
+    case 'gomoku_set_forbidden': {
+      const code = gomokuPlayerRooms.get(playerId);
+      const room = code ? gomokuRooms.get(code) : null;
+      if (!room) break;
+      // only host (first player) can toggle, and only before game has moves
+      const firstPlayer = [...room.players.keys()][0];
+      if (playerId !== firstPlayer) break;
+      room.forbiddenRule = !!msg.enabled;
+      gomokuBroadcast(room, { type: 'gomoku_forbidden_changed', enabled: room.forbiddenRule });
+      break;
+    }
     case 'gomoku_restart': {
       const code = gomokuPlayerRooms.get(playerId);
       const room = code ? gomokuRooms.get(code) : null;
@@ -1330,7 +1370,9 @@ function gomokuCreateRoom(hostId, hostName, ws) {
     currentTurn: 1, // 1=black, 2=white
     moves: [],
     winner: null,
-    restartVotes: null
+    restartVotes: null,
+    undoRequester: null,
+    forbiddenRule: false
   };
   room.players.set(hostId, { id: hostId, name: hostName, ws, color: 1, connected: true });
   gomokuRooms.set(code, room);
@@ -1354,6 +1396,16 @@ function gomokuPlace(room, playerId, row, col) {
   const player = room.players.get(playerId);
   if (!player) return { error: '玩家不在房间' };
   if (player.color !== room.currentTurn) return { error: '不是你的回合' };
+
+  // 禁手检测（仅黑棋）
+  if (room.forbiddenRule && player.color === 1) {
+    room.board[row][col] = 1; // 临时放置
+    const forbidden = gomokuCheckForbidden(room.board, row, col);
+    room.board[row][col] = 0; // 撤回
+    if (forbidden) {
+      return { error: '禁手: ' + forbidden };
+    }
+  }
 
   room.board[row][col] = player.color;
   room.moves.push({ row, col, color: player.color });
@@ -1396,6 +1448,58 @@ function gomokuCheckWin(board, row, col, color) {
   return false;
 }
 
+// 禁手检测：三三、四四、长连（仅黑棋，棋子已临时放置在board上）
+function gomokuCountLine(board, row, col, color, dr, dc) {
+  // 返回 { count, openEnds } — 连续同色数量和两端开放数
+  let count = 1;
+  let openEnds = 0;
+  // 正方向
+  let r = row + dr, c = col + dc, len1 = 0;
+  while (r >= 0 && r < 15 && c >= 0 && c < 15 && board[r][c] === color) { len1++; r += dr; c += dc; }
+  count += len1;
+  if (r >= 0 && r < 15 && c >= 0 && c < 15 && board[r][c] === 0) openEnds++;
+  // 反方向
+  r = row - dr; c = col - dc; let len2 = 0;
+  while (r >= 0 && r < 15 && c >= 0 && c < 15 && board[r][c] === color) { len2++; r -= dr; c -= dc; }
+  count += len2;
+  if (r >= 0 && r < 15 && c >= 0 && c < 15 && board[r][c] === 0) openEnds++;
+  return { count, openEnds };
+}
+
+function gomokuCheckForbidden(board, row, col) {
+  const color = 1; // 黑棋
+  const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+  
+  // 长连检测（>=6）
+  for (const [dr, dc] of dirs) {
+    const { count } = gomokuCountLine(board, row, col, color, dr, dc);
+    if (count >= 6) return '长连';
+  }
+
+  // 活三计数和活四计数
+  let liveThrees = 0, fours = 0;
+  for (const [dr, dc] of dirs) {
+    const { count, openEnds } = gomokuCountLine(board, row, col, color, dr, dc);
+    if (count === 3 && openEnds === 2) liveThrees++;
+    if (count === 4) fours++;
+  }
+  if (liveThrees >= 2) return '三三';
+  if (fours >= 2) return '四四';
+  return null;
+}
+
+function gomokuUndo(room) {
+  if (room.moves.length === 0) return;
+  // 撤回最后一步
+  const last = room.moves.pop();
+  room.board[last.row][last.col] = 0;
+  room.currentTurn = last.color; // 回到落子方的回合
+  if (room.phase === 'ended') {
+    room.phase = 'playing';
+    room.winner = null;
+  }
+}
+
 function gomokuResetGame(room) {
   room.board = Array.from({ length: 15 }, () => Array(15).fill(0));
   room.currentTurn = 1;
@@ -1403,6 +1507,7 @@ function gomokuResetGame(room) {
   room.winner = null;
   room.phase = 'playing';
   room.restartVotes = null;
+  room.undoRequester = null;
   // swap colors
   for (const [, p] of room.players) {
     p.color = p.color === 1 ? 2 : 1;
@@ -1424,7 +1529,7 @@ function gomokuRoomState(room) {
   return {
     code: room.code, phase: room.phase, board: room.board,
     currentTurn: room.currentTurn, players, moves: room.moves,
-    winnerId: room.winner
+    winnerId: room.winner, forbiddenRule: !!room.forbiddenRule
   };
 }
 
