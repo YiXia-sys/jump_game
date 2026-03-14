@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>五子棋 - 联机对战</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #1a1a2e; color: #fff;
+  font-family: 'Microsoft YaHei', sans-serif;
+  display: flex; flex-direction: column; align-items: center;
+  min-height: 100vh; user-select: none; overflow-x: hidden;
+}
+.top-bar {
+  width: 100%; padding: 10px 16px;
+  display: flex; justify-content: space-between; align-items: center;
+  background: rgba(0,0,0,0.4);
+}
+.top-bar button {
+  padding: 6px 16px; font-size: 14px; border: none; border-radius: 8px;
+  background: #555; color: #fff; cursor: pointer;
+}
+.top-bar button:hover { background: #777; }
+.status { font-size: 16px; color: #ffd700; text-align: center; }
+.container { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px; }
+.players-bar {
+  display: flex; gap: 20px; margin-bottom: 12px; font-size: 15px;
+}
+.player-tag { padding: 6px 14px; border-radius: 8px; display: flex; align-items: center; gap: 6px; }
+.player-tag.active { box-shadow: 0 0 12px rgba(255,215,0,0.6); }
+.stone-icon { width: 18px; height: 18px; border-radius: 50%; display: inline-block; }
+.board-wrap { position: relative; }
+canvas { display: block; border-radius: 4px; background: #d4a843; }
+.overlay-panel {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.7); display: flex; flex-direction: column;
+  justify-content: center; align-items: center; z-index: 100;
+}
+.panel-box {
+  background: #2a2a4a; border-radius: 16px; padding: 30px 36px;
+  text-align: center; min-width: 300px;
+}
+.panel-box h2 { font-size: 24px; margin-bottom: 16px; }
+.panel-box input {
+  width: 100%; padding: 10px; font-size: 16px; border: none; border-radius: 8px;
+  margin-bottom: 10px; background: #3a3a5a; color: #fff; text-align: center;
+}
+.panel-box input::placeholder { color: #888; }
+</style>
+</head>
+<body>
+<div class="top-bar">
+  <button onclick="location.href='/'">← 返回</button>
+  <div class="status" id="status">五子棋 - 联机对战</div>
+  <button id="restartBtn" style="display:none;background:#e94560;" onclick="requestRestart()">再来一局</button>
+</div>
+<div class="container">
+  <div class="players-bar" id="playersBar" style="display:none;"></div>
+  <div class="board-wrap" id="boardWrap" style="display:none;">
+    <canvas id="board"></canvas>
+  </div>
+</div>
+
+<div class="overlay-panel" id="lobbyPanel">
+  <div class="panel-box">
+    <h2>⚫ 五子棋联机 ⚪</h2>
+    <input id="nameInput" placeholder="输入昵称" maxlength="8" />
+    <div style="display:flex;gap:10px;margin-top:6px;">
+      <button onclick="createRoom()" style="flex:1;padding:12px;font-size:16px;border:none;border-radius:10px;background:#e94560;color:#fff;cursor:pointer;">创建房间</button>
+      <button onclick="showJoin()" style="flex:1;padding:12px;font-size:16px;border:none;border-radius:10px;background:#533483;color:#fff;cursor:pointer;">加入房间</button>
+    </div>
+    <div id="joinArea" style="display:none;margin-top:12px;">
+      <input id="codeInput" placeholder="输入房间号" maxlength="4" style="text-transform:uppercase;letter-spacing:4px;font-size:20px;" />
+      <button onclick="joinRoom()" style="width:100%;padding:10px;font-size:16px;border:none;border-radius:10px;background:#06d6a0;color:#fff;cursor:pointer;margin-top:4px;">加入</button>
+    </div>
+    <div id="lobbyMsg" style="margin-top:12px;color:#aaa;font-size:14px;"></div>
+  </div>
+</div>
+
+<div class="overlay-panel" id="waitPanel" style="display:none;">
+  <div class="panel-box">
+    <h2>等待对手加入</h2>
+    <div style="font-size:36px;letter-spacing:8px;color:#ffd700;margin:16px 0;" id="roomCodeDisplay"></div>
+    <div style="color:#aaa;font-size:14px;">将房间号分享给朋友</div>
+    <div style="margin-top:16px;">
+      <button onclick="copyCode()" style="padding:8px 24px;font-size:14px;border:none;border-radius:8px;background:#533483;color:#fff;cursor:pointer;">复制房间号</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const GRID = 15, CELL = 0;
+let cellSize, boardPx, padding;
+const canvas = document.getElementById('board');
+const ctx = canvas.getContext('2d');
+
+let ws = null, myId = null, myColor = 0, roomCode = '';
+let gameBoard = null, currentTurn = 1, phase = 'lobby';
+let players = [], lastMove = null, hoverPos = null;
+
+function calcSize() {
+  const maxW = Math.min(window.innerWidth - 20, 560);
+  const maxH = window.innerHeight - 160;
+  const sz = Math.min(maxW, maxH);
+  cellSize = Math.floor(sz / (GRID + 1));
+  padding = cellSize;
+  boardPx = cellSize * (GRID - 1) + padding * 2;
+  canvas.width = boardPx; canvas.height = boardPx;
+}
+calcSize();
+window.addEventListener('resize', () => { calcSize(); draw(); });
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(proto + '://' + location.host);
+  ws.onopen = () => {};
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    handleMsg(msg);
+  };
+  ws.onclose = () => {
+    setTimeout(connect, 2000);
+  };
+}
+
+function send(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+
+function handleMsg(msg) {
+  switch (msg.type) {
+    case 'welcome':
+      myId = msg.playerId;
+      break;
+    case 'gomoku_room_created':
+      roomCode = msg.roomCode;
+      document.getElementById('roomCodeDisplay').textContent = roomCode;
+      document.getElementById('lobbyPanel').style.display = 'none';
+      document.getElementById('waitPanel').style.display = 'flex';
+      break;
+    case 'gomoku_room_joined':
+    case 'gomoku_player_joined':
+      applyRoomState(msg.room);
+      if (msg.room.phase === 'playing') startPlaying();
+      break;
+    case 'gomoku_move':
+      gameBoard[msg.row][msg.col] = msg.color;
+      lastMove = { row: msg.row, col: msg.col };
+      if (msg.currentTurn !== undefined) currentTurn = msg.currentTurn;
+      draw();
+      updateStatus();
+      break;
+    case 'gomoku_game_over':
+      phase = 'ended';
+      document.getElementById('restartBtn').style.display = 'inline-block';
+      if (msg.draw) {
+        setStatus('平局');
+      } else {
+        const isMe = msg.winnerId === myId;
+        const colorName = msg.winColor === 1 ? '⚫黑棋' : '⚪白棋';
+        setStatus(isMe ? '🎉 你赢了!' : `${msg.winnerName}(${colorName}) 获胜`);
+      }
+      draw();
+      break;
+    case 'gomoku_game_reset':
+      applyRoomState(msg.room);
+      document.getElementById('restartBtn').style.display = 'none';
+      lastMove = null;
+      draw();
+      updateStatus();
+      break;
+    case 'gomoku_restart_request':
+      setStatus('对方请求再来一局，点击"再来一局"同意');
+      document.getElementById('restartBtn').style.display = 'inline-block';
+      break;
+    case 'gomoku_opponent_left':
+      phase = 'waiting';
+      applyRoomState(msg.room);
+      document.getElementById('waitPanel').style.display = 'flex';
+      document.getElementById('boardWrap').style.display = 'none';
+      document.getElementById('playersBar').style.display = 'none';
+      setStatus('对手已离开，等待新玩家');
+      break;
+    case 'gomoku_error':
+      document.getElementById('lobbyMsg').textContent = msg.message;
+      break;
+  }
+}
+
+function applyRoomState(room) {
+  roomCode = room.code;
+  gameBoard = room.board;
+  currentTurn = room.currentTurn;
+  phase = room.phase;
+  players = room.players;
+  myColor = 0;
+  for (const p of players) {
+    if (p.id === myId) myColor = p.color;
+  }
+  if (room.moves && room.moves.length > 0) {
+    const last = room.moves[room.moves.length - 1];
+    lastMove = { row: last.row, col: last.col };
+  }
+}
+
+function startPlaying() {
+  document.getElementById('lobbyPanel').style.display = 'none';
+  document.getElementById('waitPanel').style.display = 'none';
+  document.getElementById('boardWrap').style.display = 'block';
+  document.getElementById('playersBar').style.display = 'flex';
+  updatePlayersBar();
+  draw();
+  updateStatus();
+}
+
+function updatePlayersBar() {
+  const bar = document.getElementById('playersBar');
+  bar.innerHTML = '';
+  for (const p of players) {
+    const isActive = p.color === currentTurn && phase === 'playing';
+    const bg = p.color === 1 ? 'rgba(60,60,60,0.8)' : 'rgba(220,220,220,0.8)';
+    const fg = p.color === 1 ? '#fff' : '#222';
+    const tag = document.createElement('div');
+    tag.className = 'player-tag' + (isActive ? ' active' : '');
+    tag.style.background = bg; tag.style.color = fg;
+    const me = p.id === myId ? ' (你)' : '';
+    tag.innerHTML = `<span class="stone-icon" style="background:${p.color===1?'#222':'#eee'};border:1px solid #888;"></span>${p.name}${me}`;
+    bar.appendChild(tag);
+  }
+}
+
+function setStatus(text) { document.getElementById('status').textContent = text; }
+
+function updateStatus() {
+  updatePlayersBar();
+  if (phase !== 'playing') return;
+  const isMyTurn = myColor === currentTurn;
+  const colorName = currentTurn === 1 ? '⚫黑棋' : '⚪白棋';
+  setStatus(isMyTurn ? `轮到你了 (${colorName})` : `等待对手 (${colorName})`);
+}
+
+function draw() {
+  if (!gameBoard) return;
+  const w = canvas.width, h = canvas.height;
+  // board background
+  ctx.fillStyle = '#d4a843';
+  ctx.fillRect(0, 0, w, h);
+
+  // grid lines
+  ctx.strokeStyle = '#8a6d2b'; ctx.lineWidth = 1;
+  for (let i = 0; i < GRID; i++) {
+    const x = padding + i * cellSize;
+    ctx.beginPath(); ctx.moveTo(x, padding); ctx.lineTo(x, padding + (GRID-1)*cellSize); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(padding, x); ctx.lineTo(padding + (GRID-1)*cellSize, x); ctx.stroke();
+  }
+
+  // star points
+  const stars = [3,7,11];
+  ctx.fillStyle = '#8a6d2b';
+  for (const r of stars) for (const c of stars) {
+    ctx.beginPath();
+    ctx.arc(padding + c * cellSize, padding + r * cellSize, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // stones
+  const stoneR = cellSize * 0.43;
+  for (let r = 0; r < GRID; r++) for (let c = 0; c < GRID; c++) {
+    if (gameBoard[r][c] === 0) continue;
+    const x = padding + c * cellSize, y = padding + r * cellSize;
+    const isBlack = gameBoard[r][c] === 1;
+    // shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.beginPath(); ctx.arc(x + 2, y + 2, stoneR, 0, Math.PI * 2); ctx.fill();
+    // stone
+    const grad = ctx.createRadialGradient(x - stoneR*0.3, y - stoneR*0.3, stoneR*0.1, x, y, stoneR);
+    if (isBlack) {
+      grad.addColorStop(0, '#555'); grad.addColorStop(1, '#111');
+    } else {
+      grad.addColorStop(0, '#fff'); grad.addColorStop(1, '#ccc');
+    }
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(x, y, stoneR, 0, Math.PI * 2); ctx.fill();
+    // highlight on last move
+    if (lastMove && lastMove.row === r && lastMove.col === c) {
+      ctx.strokeStyle = '#e94560'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y, stoneR + 2, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+
+  // hover preview
+  if (hoverPos && phase === 'playing' && myColor === currentTurn && gameBoard[hoverPos.row][hoverPos.col] === 0) {
+    const x = padding + hoverPos.col * cellSize, y = padding + hoverPos.row * cellSize;
+    ctx.globalAlpha = 0.4;
+    ctx.fillStyle = myColor === 1 ? '#222' : '#eee';
+    ctx.beginPath(); ctx.arc(x, y, stoneR, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+function getGridPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  let cx, cy;
+  if (e.touches) {
+    cx = (e.touches[0].clientX - rect.left) * scaleX;
+    cy = (e.touches[0].clientY - rect.top) * scaleY;
+  } else {
+    cx = (e.clientX - rect.left) * scaleX;
+    cy = (e.clientY - rect.top) * scaleY;
+  }
+  const col = Math.round((cx - padding) / cellSize);
+  const row = Math.round((cy - padding) / cellSize);
+  if (row >= 0 && row < GRID && col >= 0 && col < GRID) return { row, col };
+  return null;
+}
+
+canvas.addEventListener('mousemove', (e) => {
+  hoverPos = getGridPos(e);
+  draw();
+});
+canvas.addEventListener('mouseleave', () => { hoverPos = null; draw(); });
+
+canvas.addEventListener('click', (e) => {
+  if (phase !== 'playing' || myColor !== currentTurn) return;
+  const pos = getGridPos(e);
+  if (!pos || gameBoard[pos.row][pos.col] !== 0) return;
+  send({ type: 'gomoku_place', row: pos.row, col: pos.col });
+});
+
+canvas.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  if (phase !== 'playing' || myColor !== currentTurn) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const touch = e.changedTouches[0];
+  const cx = (touch.clientX - rect.left) * scaleX;
+  const cy = (touch.clientY - rect.top) * scaleY;
+  const col = Math.round((cx - padding) / cellSize);
+  const row = Math.round((cy - padding) / cellSize);
+  if (row >= 0 && row < GRID && col >= 0 && col < GRID && gameBoard[row][col] === 0) {
+    send({ type: 'gomoku_place', row, col });
+  }
+});
+
+function createRoom() {
+  const name = document.getElementById('nameInput').value.trim() || '玩家';
+  send({ type: 'gomoku_create', playerName: name });
+}
+function showJoin() {
+  document.getElementById('joinArea').style.display = 'block';
+}
+function joinRoom() {
+  const name = document.getElementById('nameInput').value.trim() || '玩家';
+  const code = document.getElementById('codeInput').value.trim().toUpperCase();
+  if (!code) { document.getElementById('lobbyMsg').textContent = '请输入房间号'; return; }
+  send({ type: 'gomoku_join', playerName: name, roomCode: code });
+}
+function copyCode() {
+  navigator.clipboard.writeText(roomCode).catch(() => {});
+  const btn = event.target;
+  btn.textContent = '已复制'; setTimeout(() => btn.textContent = '复制房间号', 1500);
+}
+function requestRestart() {
+  send({ type: 'gomoku_restart' });
+  document.getElementById('restartBtn').style.display = 'none';
+  setStatus('等待对方同意...');
+}
+
+// heartbeat
+setInterval(() => { send({ type: 'gomoku_heartbeat' }); }, 3000);
+
+connect();
+</script>
+</body>
+</html>

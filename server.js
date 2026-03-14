@@ -1099,6 +1099,7 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     clearHeartbeat(ws._playerId);
     handleDisconnect(ws._playerId);
+    gomokuRemovePlayer(ws._playerId);
   });
 });
 
@@ -1259,7 +1260,185 @@ function handleMessage(ws, msg) {
       broadcastAll(room, { type: 'room_reset', room: getRoomState(room) });
       break;
     }
+    // === 五子棋消息 ===
+    case 'gomoku_create': {
+      const name = (msg.playerName || '').trim().slice(0, 8) || '玩家';
+      const room = gomokuCreateRoom(playerId, name, ws);
+      sendTo(ws, { type: 'gomoku_room_created', roomCode: room.code, room: gomokuRoomState(room) });
+      break;
+    }
+    case 'gomoku_join': {
+      const name = (msg.playerName || '').trim().slice(0, 8) || '玩家';
+      const code = (msg.roomCode || '').toUpperCase();
+      const result = gomokuJoinRoom(code, playerId, name, ws);
+      if (result.error) {
+        sendTo(ws, { type: 'gomoku_error', message: result.error });
+      } else {
+        const room = result.room;
+        sendTo(ws, { type: 'gomoku_room_joined', room: gomokuRoomState(room) });
+        gomokuBroadcast(room, { type: 'gomoku_player_joined', room: gomokuRoomState(room) });
+      }
+      break;
+    }
+    case 'gomoku_place': {
+      const code = gomokuPlayerRooms.get(playerId);
+      const room = code ? gomokuRooms.get(code) : null;
+      if (!room || room.phase !== 'playing') break;
+      const result = gomokuPlace(room, playerId, msg.row, msg.col);
+      if (result.error) {
+        sendTo(ws, { type: 'gomoku_error', message: result.error });
+      }
+      break;
+    }
+    case 'gomoku_restart': {
+      const code = gomokuPlayerRooms.get(playerId);
+      const room = code ? gomokuRooms.get(code) : null;
+      if (!room) break;
+      if (!room.restartVotes) room.restartVotes = new Set();
+      room.restartVotes.add(playerId);
+      if (room.restartVotes.size >= 2) {
+        gomokuResetGame(room);
+        gomokuBroadcast(room, { type: 'gomoku_game_reset', room: gomokuRoomState(room) });
+      } else {
+        gomokuBroadcast(room, { type: 'gomoku_restart_request', playerId });
+      }
+      break;
+    }
+    case 'gomoku_leave': {
+      gomokuRemovePlayer(playerId);
+      break;
+    }
+    case 'gomoku_heartbeat': {
+      // keep alive
+      break;
+    }
     default:
       sendTo(ws, { type: 'error', message: '未知消息类型: ' + msg.type });
+  }
+}
+
+// === 五子棋服务端逻辑 ===
+const gomokuRooms = new Map();
+const gomokuPlayerRooms = new Map();
+
+function gomokuCreateRoom(hostId, hostName, ws) {
+  const code = generateRoomCode(new Set([...rooms.keys(), ...gomokuRooms.keys()]));
+  const board = Array.from({ length: 15 }, () => Array(15).fill(0));
+  const room = {
+    code, phase: 'waiting', board,
+    players: new Map(),
+    currentTurn: 1, // 1=black, 2=white
+    moves: [],
+    winner: null,
+    restartVotes: null
+  };
+  room.players.set(hostId, { id: hostId, name: hostName, ws, color: 1, connected: true });
+  gomokuRooms.set(code, room);
+  gomokuPlayerRooms.set(hostId, code);
+  return room;
+}
+
+function gomokuJoinRoom(code, playerId, name, ws) {
+  const room = gomokuRooms.get(code);
+  if (!room) return { error: '房间不存在' };
+  if (room.players.size >= 2) return { error: '房间已满' };
+  room.players.set(playerId, { id: playerId, name, ws, color: 2, connected: true });
+  gomokuPlayerRooms.set(playerId, code);
+  room.phase = 'playing';
+  return { room };
+}
+
+function gomokuPlace(room, playerId, row, col) {
+  if (row < 0 || row >= 15 || col < 0 || col >= 15) return { error: '无效位置' };
+  if (room.board[row][col] !== 0) return { error: '该位置已有棋子' };
+  const player = room.players.get(playerId);
+  if (!player) return { error: '玩家不在房间' };
+  if (player.color !== room.currentTurn) return { error: '不是你的回合' };
+
+  room.board[row][col] = player.color;
+  room.moves.push({ row, col, color: player.color });
+  
+  const win = gomokuCheckWin(room.board, row, col, player.color);
+  const draw = !win && room.moves.length >= 225;
+
+  if (win) {
+    room.phase = 'ended';
+    room.winner = playerId;
+    gomokuBroadcast(room, { type: 'gomoku_move', row, col, color: player.color, playerId });
+    gomokuBroadcast(room, { type: 'gomoku_game_over', winnerId: playerId, winnerName: player.name, winColor: player.color });
+  } else if (draw) {
+    room.phase = 'ended';
+    gomokuBroadcast(room, { type: 'gomoku_move', row, col, color: player.color, playerId });
+    gomokuBroadcast(room, { type: 'gomoku_game_over', winnerId: null, draw: true });
+  } else {
+    room.currentTurn = room.currentTurn === 1 ? 2 : 1;
+    gomokuBroadcast(room, { type: 'gomoku_move', row, col, color: player.color, currentTurn: room.currentTurn, playerId });
+  }
+  return {};
+}
+
+function gomokuCheckWin(board, row, col, color) {
+  const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+  for (const [dr, dc] of dirs) {
+    let count = 1;
+    for (let d = 1; d < 5; d++) {
+      const r = row + dr * d, c = col + dc * d;
+      if (r >= 0 && r < 15 && c >= 0 && c < 15 && board[r][c] === color) count++;
+      else break;
+    }
+    for (let d = 1; d < 5; d++) {
+      const r = row - dr * d, c = col - dc * d;
+      if (r >= 0 && r < 15 && c >= 0 && c < 15 && board[r][c] === color) count++;
+      else break;
+    }
+    if (count >= 5) return true;
+  }
+  return false;
+}
+
+function gomokuResetGame(room) {
+  room.board = Array.from({ length: 15 }, () => Array(15).fill(0));
+  room.currentTurn = 1;
+  room.moves = [];
+  room.winner = null;
+  room.phase = 'playing';
+  room.restartVotes = null;
+  // swap colors
+  for (const [, p] of room.players) {
+    p.color = p.color === 1 ? 2 : 1;
+  }
+}
+
+function gomokuBroadcast(room, msg) {
+  const data = JSON.stringify(msg);
+  for (const [, p] of room.players) {
+    if (p.ws && p.ws.readyState === 1) p.ws.send(data);
+  }
+}
+
+function gomokuRoomState(room) {
+  const players = [];
+  for (const [id, p] of room.players) {
+    players.push({ id, name: p.name, color: p.color, connected: p.connected });
+  }
+  return {
+    code: room.code, phase: room.phase, board: room.board,
+    currentTurn: room.currentTurn, players, moves: room.moves,
+    winnerId: room.winner
+  };
+}
+
+function gomokuRemovePlayer(playerId) {
+  const code = gomokuPlayerRooms.get(playerId);
+  if (!code) return;
+  const room = gomokuRooms.get(code);
+  if (!room) return;
+  room.players.delete(playerId);
+  gomokuPlayerRooms.delete(playerId);
+  if (room.players.size === 0) {
+    gomokuRooms.delete(code);
+  } else {
+    room.phase = 'waiting';
+    gomokuBroadcast(room, { type: 'gomoku_opponent_left', room: gomokuRoomState(room) });
   }
 }
