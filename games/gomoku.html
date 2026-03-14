@@ -50,8 +50,8 @@ canvas { display: block; border-radius: 4px; background: #d4a843; }
 </style>
 </head>
 <body>
-<div class="top-bar">
-  <button onclick="location.href='/'">← 返回</button>
+<div class="top-bar" style="z-index:101;">
+  <button onclick="goBack()">← 返回</button>
   <div class="status" id="status">五子棋 - 联机对战</div>
   <div style="display:flex;gap:6px;">
     <button id="undoBtn" style="display:none;background:#fb8500;" onclick="requestUndo()">悔棋</button>
@@ -687,6 +687,8 @@ function lineScore(count, openEnds) {
 
 // heartbeat
 setInterval(() => { send({ type: 'gomoku_heartbeat' }); }, 3000);
+
+function goBack() { const base = window.location.pathname.replace(/\/games\/[^/]*$/, '/'); window.location.href = base; }
 
 connect();
 </script>
